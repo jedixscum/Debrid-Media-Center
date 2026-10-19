@@ -353,8 +353,8 @@ private fun DiscoverScreen() {
                         value = magnet,
                         onValueChange = { magnet = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Magnet link") },
-                        placeholder = { Text("magnet:?xt=urn:btih:…") },
+                        label = { Text("Magnet link or info hash") },
+                        placeholder = { Text("magnet:?xt=urn:btih:… or 40-character hash") },
                         minLines = 3,
                         maxLines = 5,
                         colors = OutlinedTextFieldDefaults.colors(
@@ -365,6 +365,42 @@ private fun DiscoverScreen() {
                         )
                     )
                     Text("Only add content you have the right to access. This sends the magnet directly to the selected provider.", color = Muted, fontSize = 12.sp)
+                    Button(
+                        onClick = {
+                            if (!store.hasToken(provider)) {
+                                status = "Connect this provider in Services before checking cache."
+                                error = true
+                            } else if (magnet.isBlank()) {
+                                status = "Paste a magnet link or enter a torrent info hash first."
+                                error = true
+                            } else {
+                                busy = true
+                                status = "Checking cache on " + (if (provider == ProviderStore.REAL_DEBRID) "Real-Debrid" else "TorBox") + "…"
+                                error = false
+                                scope.launch {
+                                    val result = withContext(Dispatchers.IO) { runCatching { store.checkCached(provider, magnet) } }
+                                    busy = false
+                                    result.onSuccess {
+                                        status = (if (it.cached) "✓ CACHED" else "NOT CACHED") + " · " + it.title + " · Hash " + it.hash
+                                        error = !it.cached
+                                    }.onFailure {
+                                        status = it.message ?: "Cache check failed."
+                                        error = true
+                                    }
+                                }
+                            }
+                        },
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Panel, contentColor = Teal),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        if (busy) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Teal)
+                            Spacer(Modifier.size(8.dp))
+                        }
+                        Text(if (busy) "Working…" else "Check cache availability", fontWeight = FontWeight.Bold)
+                    }
                     Button(
                         onClick = {
                             if (!store.hasToken(provider)) {
@@ -405,9 +441,9 @@ private fun DiscoverScreen() {
                 Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Search, contentDescription = null, tint = Teal, modifier = Modifier.size(24.dp))
                     Column {
-                        Text("Title-based discovery is next", fontWeight = FontWeight.SemiBold)
+                        Text("Cache-first workflow", fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.height(4.dp))
-                        Text("This build adds real provider submission. Searchable catalogs and release matching are being built separately so results aren't fabricated.", color = Muted, fontSize = 12.sp)
+                        Text("Check whether a torrent hash is already cached before adding it. Title-based release search and in-app playback are the next larger features.", color = Muted, fontSize = 12.sp)
                     }
                 }
             }
