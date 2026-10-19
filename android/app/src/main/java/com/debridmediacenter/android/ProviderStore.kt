@@ -19,7 +19,15 @@ import javax.crypto.spec.GCMParameterSpec
  * Stores provider tokens encrypted with a non-exportable Android Keystore AES key.
  * The app preferences contain only Base64-encoded IV/ciphertext, never the token itself.
  */
-data class ProviderLibraryItem(\n    val provider: String,\n    val id: String,\n    val title: String,\n    val status: String,\n    val progress: Int\n)\n\nclass ProviderStore(context: Context) {
+data class ProviderLibraryItem(
+    val provider: String,
+    val id: String,
+    val title: String,
+    val status: String,
+    val progress: Int
+)
+
+class ProviderStore(context: Context) {
     private val prefs = context.getSharedPreferences("provider_secrets", Context.MODE_PRIVATE)
     private val keyAlias = "debrid_media_center_provider_key"
 
