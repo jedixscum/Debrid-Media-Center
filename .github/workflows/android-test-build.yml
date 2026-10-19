@@ -29,22 +29,26 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # Install only currently supported SDK packages. The legacy "tools"
+      # package was removed from Google's SDK repository and makes setup fail.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+
+      - name: Install Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
 
       - name: Build debug APK
         working-directory: android
         run: |
-          chmod +x gradlew 2>/dev/null || true
-          if [ -f gradlew ]; then
-            ./gradlew --no-daemon assembleDebug
-          else
-            echo "Gradle wrapper is missing; generating wrapper with installed Gradle."
-            sudo apt-get update
-            sudo apt-get install -y gradle
+          if [ ! -f gradlew ]; then
             gradle wrapper --gradle-version 8.9
-            ./gradlew --no-daemon assembleDebug
           fi
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
