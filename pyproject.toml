@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "debrid-media-center"
+version = "0.1.0"
+description = "Native Linux media and debrid manager"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "PySide6>=6.7",
+  "keyring>=25.0",
+  "platformdirs>=4.2",
+]
+
+[project.optional-dependencies]
+player = ["python-mpv>=1.0"]
+dev = ["pytest>=8.0", "ruff>=0.5"]
+
+[project.scripts]
+debrid-media-center = "debrid_media_center.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
