@@ -1,0 +1,72 @@
+name: Linux desktop test build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Linux Qt and media runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxcb-shape0 libxcb-shm0 libxcb-util1 libmpv2
+
+      - name: Install application and build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,player]" pyinstaller
+
+      - name: Run tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q
+
+      - name: Package desktop application
+        run: |
+          pyinstaller --noconfirm --clean --windowed \
+            --name DebridMediaCenter \
+            --collect-all PySide6 \
+            --collect-all keyring \
+            --collect-all platformdirs \
+            --add-data "src/debrid_media_center/qml:debrid_media_center/qml" \
+            src/debrid_media_center/__main__.py
+
+      - name: Add launch instructions
+        run: |
+          cat > dist/README-Linux.txt <<'EOF'
+          Debrid Media Center - Linux test build
+
+          Extract the artifact and run:
+            ./DebridMediaCenter/DebridMediaCenter
+
+          This is an early UI test build. Provider connections, content search,
+          library operations, and playback are not fully implemented yet.
+          For playback support, install mpv and libmpv from your distribution.
+          EOF
+
+      - name: Upload test desktop app
+        uses: actions/upload-artifact@v4
+        with:
+          name: debrid-media-center-linux-x86_64
+          path: |
+            dist/DebridMediaCenter/
+            dist/README-Linux.txt
+          if-no-files-found: error
+          retention-days: 14
