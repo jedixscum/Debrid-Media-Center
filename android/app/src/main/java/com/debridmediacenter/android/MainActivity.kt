@@ -458,6 +458,7 @@ private fun LibraryScreen() {
     val scope = rememberCoroutineScope()
     var provider by remember { mutableStateOf(ProviderStore.REAL_DEBRID) }
     var items by remember { mutableStateOf<List<ProviderLibraryItem>>(emptyList()) }
+    var libraryQuery by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Choose a provider and load its items.") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf(false) }
@@ -514,14 +515,46 @@ private fun LibraryScreen() {
                 Text(if (busy) "Loading…" else "Refresh library")
             }
             Text(status, color = if (error) ErrorRed else Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = libraryQuery,
+                onValueChange = { libraryQuery = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Filter your library") },
+                placeholder = { Text("Search titles or status") },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Teal,
+                    focusedLabelColor = Teal,
+                    cursorColor = Teal,
+                    unfocusedBorderColor = Muted.copy(alpha = .45f)
+                )
+            )
+        }
+        val visibleItems = items.filter {
+            libraryQuery.isBlank() ||
+                it.title.contains(libraryQuery, ignoreCase = true) ||
+                it.status.contains(libraryQuery, ignoreCase = true) ||
+                it.id.contains(libraryQuery, ignoreCase = true)
         }
         LazyColumn(
             modifier = Modifier.fillMaxWidth().weight(1f),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 18.dp, end = 18.dp, bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            items(items.size) { index ->
-                val item = items[index]
+            if (visibleItems.isEmpty()) {
+                item {
+                    Text(
+                        if (items.isEmpty()) "Your library is empty. Connect a provider and refresh to load items."
+                        else "No library items match “$libraryQuery”.",
+                        color = Muted,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 16.dp)
+                    )
+                }
+            }
+            items(visibleItems.size) { index ->
+                val item = visibleItems[index]
                 Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(16.dp)) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text(item.title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
