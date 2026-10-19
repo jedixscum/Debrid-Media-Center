@@ -318,6 +318,10 @@ private fun DiscoverScreen() {
     val scope = rememberCoroutineScope()
     var provider by remember { mutableStateOf(ProviderStore.REAL_DEBRID) }
     var magnet by remember { mutableStateOf("") }
+    var titleQuery by remember { mutableStateOf("") }
+    var titleResults by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }
+    var titleStatus by remember { mutableStateOf("Search movies and TV shows by title.") }
+    var titleBusy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Paste a magnet link to add it to your selected provider.") }
     var error by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
@@ -332,6 +336,74 @@ private fun DiscoverScreen() {
             Text("Discover", fontSize = 29.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(6.dp))
             Text("Add a magnet directly to your debrid account.", color = Muted, fontSize = 14.sp)
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(22.dp)) {
+                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("SEARCH TITLES", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                    OutlinedTextField(
+                        value = titleQuery,
+                        onValueChange = { titleQuery = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Movie or TV show") },
+                        placeholder = { Text("Search a title…") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Teal,
+                            focusedLabelColor = Teal,
+                            cursorColor = Teal,
+                            unfocusedBorderColor = Muted.copy(alpha = .45f)
+                        )
+                    )
+                    Button(
+                        onClick = {
+                            if (titleQuery.trim().length < 2) {
+                                titleStatus = "Enter at least two characters."
+                            } else {
+                                titleBusy = true
+                                titleStatus = "Searching titles…"
+                                scope.launch {
+                                    val result = withContext(Dispatchers.IO) {
+                                        runCatching { store.searchTitles(titleQuery) }
+                                    }
+                                    titleBusy = false
+                                    result.onSuccess {
+                                        titleResults = it
+                                        titleStatus = if (it.isEmpty()) "No matching titles found." else "Found " + it.size + " title(s)."
+                                    }.onFailure {
+                                        titleStatus = it.message ?: "Title search failed."
+                                    }
+                                }
+                            }
+                        },
+                        enabled = !titleBusy,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Background),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        if (titleBusy) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Background)
+                            Spacer(Modifier.size(8.dp))
+                        }
+                        Text(if (titleBusy) "Searching…" else "Search titles", fontWeight = FontWeight.Bold)
+                    }
+                    Text(titleStatus, color = Muted, fontSize = 12.sp)
+                }
+            }
+        }
+        items(titleResults.size) { index ->
+            val result = titleResults[index]
+            Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(16.dp)) {
+                Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(result.title, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        Text(result.type.uppercase(), color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                    if (result.year.isNotBlank()) Text(result.year, color = Muted, fontSize = 12.sp)
+                    if (result.overview.isNotBlank()) Text(result.overview, color = Muted, fontSize = 12.sp, maxLines = 3)
+                    Text("IMDb / Trakt ID: " + result.id, color = Muted.copy(alpha = .8f), fontSize = 10.sp)
+                }
+            }
         }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(22.dp)) {
@@ -441,9 +513,9 @@ private fun DiscoverScreen() {
                 Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Search, contentDescription = null, tint = Teal, modifier = Modifier.size(24.dp))
                     Column {
-                        Text("Cache-first workflow", fontWeight = FontWeight.SemiBold)
+                        Text("Release search and playback", fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.height(4.dp))
-                        Text("Check whether a torrent hash is already cached before adding it. Title-based release search and in-app playback are the next larger features.", color = Muted, fontSize = 12.sp)
+                        Text("Title search is now available above. Selecting releases, checking each release's cache status, and opening playable files are still being connected.", color = Muted, fontSize = 12.sp)
                     }
                 }
             }
