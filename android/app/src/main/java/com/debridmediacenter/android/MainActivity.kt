@@ -75,12 +75,14 @@ private fun DebridApp() {
     MaterialTheme {
         Surface(Modifier.fillMaxSize(), color = Background, contentColor = Color.White) {
             Column(Modifier.fillMaxSize()) {
-                when (selectedTab) {
-                    0 -> HomeScreen(onServices = { selectedTab = 3 }, onDiscover = { selectedTab = 1 }, onLibrary = { selectedTab = 2 })
-                    1 -> PlaceholderScreen("Discover", "Search and add content from supported sources.", Icons.Default.Search)
-                    2 -> PlaceholderScreen("Your library", "Your provider files will appear here as library integration is added.", Icons.Default.Folder)
-                    3 -> ServicesScreen()
-                    else -> PlaceholderScreen("Settings", "Secure provider credentials are stored on this device using Android Keystore encryption.", Icons.Default.Settings)
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    when (selectedTab) {
+                        0 -> HomeScreen(onServices = { selectedTab = 3 }, onDiscover = { selectedTab = 1 }, onLibrary = { selectedTab = 2 })
+                        1 -> PlaceholderScreen("Discover", "Search and add content from supported sources.", Icons.Default.Search)
+                        2 -> PlaceholderScreen("Your library", "Your provider files will appear here as library integration is added.", Icons.Default.Folder)
+                        3 -> ServicesScreen()
+                        else -> PlaceholderScreen("Settings", "Secure provider credentials are stored on this device using Android Keystore encryption.", Icons.Default.Settings)
+                    }
                 }
                 NavigationBar(containerColor = Panel, contentColor = Teal) {
                     val labels = listOf("Home", "Discover", "Library", "Services", "Settings")
@@ -102,7 +104,7 @@ private fun DebridApp() {
 @Composable
 private fun HomeScreen(onServices: () -> Unit, onDiscover: () -> Unit, onLibrary: () -> Unit) {
     LazyColumn(
-        modifier = Modifier.weightSafeFill(),
+        modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
@@ -367,5 +369,3 @@ private fun FeatureCard(
         }
     }
 }
-
-private fun Modifier.weightSafeFill(): Modifier = this.fillMaxWidth().weight(1f)
