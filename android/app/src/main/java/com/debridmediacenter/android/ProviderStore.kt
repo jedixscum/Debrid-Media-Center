@@ -27,6 +27,13 @@ data class ProviderLibraryItem(
     val progress: Int
 )
 
+data class CacheCheckResult(
+    val provider: String,
+    val hash: String,
+    val cached: Boolean,
+    val title: String
+)
+
 class ProviderStore(context: Context) {
     private val prefs = context.getSharedPreferences("provider_secrets", Context.MODE_PRIVATE)
     private val keyAlias = "debrid_media_center_provider_key"
@@ -176,6 +183,67 @@ class ProviderStore(context: Context) {
                 id != null -> "Magnet added to Real-Debrid · ID $id"
                 else -> "Magnet submitted successfully."
             }
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    /**
+     * Checks a supplied torrent hash or magnet against the selected provider's cached inventory.
+     * This does not add anything to the account.
+     */
+    fun checkCached(provider: String, input: String): CacheCheckResult {
+        val secret = readToken(provider)?.trim().orEmpty()
+        require(secret.isNotEmpty()) { "Connect this provider in Services first." }
+        val raw = input.trim()
+        val hash = Regex("(?i)(?:btih:)?([a-f0-9]{40})").find(raw)?.groupValues?.get(1)?.lowercase()
+            ?: Regex("(?i)(?:btih:)?([a-z2-7]{32})").find(raw)?.groupValues?.get(1)?.lowercase()
+            ?: throw IllegalArgumentException("Enter a 40-character info hash or a magnet link containing one.")
+
+        val endpoint = when (provider) {
+            REAL_DEBRID -> "https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/$hash"
+            TORBOX -> "https://api.torbox.app/v1/api/torrents/checkcached?hash=$hash&format=object&list_files=false"
+            else -> error("Unknown provider.")
+        }
+        val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 12000
+            readTimeout = 15000
+            setRequestProperty("Authorization", "Bearer $secret")
+            setRequestProperty("Accept", "application/json")
+        }
+        try {
+            val status = connection.responseCode
+            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            if (status !in 200..299) {
+                val json = runCatching { JSONObject(body) }.getOrNull()
+                throw IllegalStateException(json?.optString("detail")?.takeIf { it.isNotBlank() }
+                    ?: when (status) {
+                        401, 403 -> "Authentication failed. Check the provider API key."
+                        429 -> "Provider rate limit reached. Wait and try again."
+                        else -> "Cache check failed (HTTP $status)."
+                    })
+            }
+            val json = JSONObject(body)
+            val cached: Boolean
+            val title: String
+            if (provider == REAL_DEBRID) {
+                val item = json.optJSONObject(hash) ?: json.optJSONObject(hash.uppercase())
+                val variants = item?.optJSONArray("rd")
+                cached = variants != null && variants.length() > 0
+                title = if (cached) "Cached on Real-Debrid" else "Not found in Real-Debrid cache"
+            } else {
+                if (json.has("success") && !json.optBoolean("success", false)) {
+                    throw IllegalStateException(json.optString("detail").ifBlank { "TorBox could not check cache availability." })
+                }
+                val data = json.optJSONObject("data")
+                val entry = data?.optJSONObject(hash) ?: data?.optJSONObject(hash.uppercase())
+                cached = entry != null
+                title = entry?.optString("name")?.takeIf { it.isNotBlank() && it != "null" }
+                    ?: if (cached) "Cached on TorBox" else "Not found in TorBox cache"
+            }
+            return CacheCheckResult(provider, hash, cached, title)
         } finally {
             connection.disconnect()
         }
