@@ -354,7 +354,7 @@ private fun DiscoverScreen() {
                         onValueChange = { magnet = it },
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("Magnet link or info hash") },
-                        placeholder = { Text("magnet:?xt=urn:btih:… or 40-character hash") },
+                        placeholder = { Text("magnet:?xt=urn:btih:… or 40-character hexadecimal hash") },
                         minLines = 3,
                         maxLines = 5,
                         colors = OutlinedTextFieldDefaults.colors(
@@ -382,7 +382,7 @@ private fun DiscoverScreen() {
                                     busy = false
                                     result.onSuccess {
                                         status = (if (it.cached) "✓ CACHED" else "NOT CACHED") + " · " + it.title + " · Hash " + it.hash
-                                        error = !it.cached
+                                        error = false
                                     }.onFailure {
                                         status = it.message ?: "Cache check failed."
                                         error = true
