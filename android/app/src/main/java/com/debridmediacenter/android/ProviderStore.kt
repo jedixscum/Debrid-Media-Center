@@ -34,6 +34,14 @@ data class CacheCheckResult(
     val title: String
 )
 
+data class MediaSearchResult(
+    val id: String,
+    val type: String,
+    val title: String,
+    val year: String,
+    val overview: String
+)
+
 class ProviderStore(context: Context) {
     private val prefs = context.getSharedPreferences("provider_secrets", Context.MODE_PRIVATE)
     private val keyAlias = "debrid_media_center_provider_key"
@@ -243,6 +251,56 @@ class ProviderStore(context: Context) {
                     ?: if (cached) "Cached on TorBox" else "Not found in TorBox cache"
             }
             return CacheCheckResult(provider, hash, cached, title)
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    /**
+     * Searches real movie and show titles using Debrid Media Manager's public
+     * Trakt search proxy. This searches titles, not torrent/release sources.
+     */
+    fun searchTitles(query: String): List<MediaSearchResult> {
+        val term = query.trim()
+        require(term.length >= 2) { "Enter at least two characters to search." }
+        val endpoint = URL("https://debridmediamanager.com/api/trakt/search?query=" +
+            URLEncoder.encode(term, "UTF-8") + "&types=movie,show")
+        val connection = (endpoint.openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 12000
+            readTimeout = 18000
+            setRequestProperty("Accept", "application/json")
+        }
+        try {
+            val status = connection.responseCode
+            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            if (status !in 200..299) {
+                throw IllegalStateException(when (status) {
+                    429 -> "Title search is being rate-limited. Wait a moment and retry."
+                    else -> "Title search failed (HTTP $status)."
+                })
+            }
+            val array = org.json.JSONArray(body)
+            val results = mutableListOf<MediaSearchResult>()
+            for (i in 0 until array.length()) {
+                val item = array.optJSONObject(i) ?: continue
+                val type = item.optString("type").ifBlank { "movie" }
+                val media = item.optJSONObject(type) ?: continue
+                val title = media.optString("title").takeIf { it.isNotBlank() } ?: continue
+                val ids = media.optJSONObject("ids")
+                val id = ids?.optString("imdb")?.takeIf { it.startsWith("tt") }
+                    ?: ids?.optString("trakt")?.takeIf { it.isNotBlank() }
+                    ?: "$type-$i"
+                results.add(MediaSearchResult(
+                    id = id,
+                    type = type,
+                    title = title,
+                    year = media.optInt("year", 0).takeIf { it > 0 }?.toString() ?: "",
+                    overview = media.optString("overview").takeIf { it.isNotBlank() && it != "null" }.orEmpty()
+                ))
+            }
+            return results
         } finally {
             connection.disconnect()
         }
