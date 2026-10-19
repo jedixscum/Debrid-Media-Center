@@ -27,6 +27,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -78,8 +79,8 @@ private fun DebridApp() {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     when (selectedTab) {
                         0 -> HomeScreen(onServices = { selectedTab = 3 }, onDiscover = { selectedTab = 1 }, onLibrary = { selectedTab = 2 })
-                        1 -> PlaceholderScreen("Discover", "Search and add content from supported sources.", Icons.Default.Search)
-                        2 -> PlaceholderScreen("Your library", "Your provider files will appear here as library integration is added.", Icons.Default.Folder)
+                        1 -> DiscoverScreen()
+                        2 -> LibraryScreen()
                         3 -> ServicesScreen()
                         else -> PlaceholderScreen("Settings", "Secure provider credentials are stored on this device using Android Keystore encryption.", Icons.Default.Settings)
                     }
@@ -304,6 +305,196 @@ private fun ProviderCard(title: String, subtitle: String, provider: String, stor
                     },
                     enabled = !busy && hasSavedKey
                 ) { Text("Remove key", color = Muted) }
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun DiscoverScreen() {
+    val context = LocalContext.current
+    val store = remember { ProviderStore(context.applicationContext) }
+    val scope = rememberCoroutineScope()
+    var provider by remember { mutableStateOf(ProviderStore.REAL_DEBRID) }
+    var magnet by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("Paste a magnet link to add it to your selected provider.") }
+    var error by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 20.dp, end = 20.dp, top = 28.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            BrandHeader()
+            Text("Discover", fontSize = 29.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(6.dp))
+            Text("Add a magnet directly to your debrid account.", color = Muted, fontSize = 14.sp)
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(22.dp)) {
+                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("CHOOSE PROVIDER", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(
+                            onClick = { provider = ProviderStore.REAL_DEBRID; status = "Ready to add to Real-Debrid."; error = false },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = if (provider == ProviderStore.REAL_DEBRID) Teal else Background, contentColor = if (provider == ProviderStore.REAL_DEBRID) Background else Color.White)
+                        ) { Text("Real-Debrid") }
+                        Button(
+                            onClick = { provider = ProviderStore.TORBOX; status = "Ready to add to TorBox."; error = false },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = if (provider == ProviderStore.TORBOX) Teal else Background, contentColor = if (provider == ProviderStore.TORBOX) Background else Color.White)
+                        ) { Text("TorBox") }
+                    }
+                    OutlinedTextField(
+                        value = magnet,
+                        onValueChange = { magnet = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Magnet link") },
+                        placeholder = { Text("magnet:?xt=urn:btih:…") },
+                        minLines = 3,
+                        maxLines = 5,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Teal,
+                            focusedLabelColor = Teal,
+                            cursorColor = Teal,
+                            unfocusedBorderColor = Muted.copy(alpha = .45f)
+                        )
+                    )
+                    Text("Only add content you have the right to access. This sends the magnet directly to the selected provider.", color = Muted, fontSize = 12.sp)
+                    Button(
+                        onClick = {
+                            if (!store.hasToken(provider)) {
+                                status = "Connect this provider in Services before adding content."
+                                error = true
+                            } else if (!magnet.trim().startsWith("magnet:?xt=urn:btih:", ignoreCase = true)) {
+                                status = "Enter a valid magnet link."
+                                error = true
+                            } else {
+                                busy = true
+                                status = "Sending magnet to " + (if (provider == ProviderStore.REAL_DEBRID) "Real-Debrid" else "TorBox") + "…"
+                                error = false
+                                scope.launch {
+                                    val result = withContext(Dispatchers.IO) { runCatching { store.addMagnet(provider, magnet) } }
+                                    busy = false
+                                    result.onSuccess { status = it; magnet = ""; error = false }
+                                        .onFailure { status = it.message ?: "Could not add magnet."; error = true }
+                                }
+                            }
+                        },
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Background),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        if (busy) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Background)
+                            Spacer(Modifier.size(8.dp))
+                        }
+                        Text(if (busy) "Adding…" else "Add to provider", fontWeight = FontWeight.Bold)
+                    }
+                    Text(status, color = if (error) ErrorRed else Muted, fontSize = 12.sp)
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+                Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Search, contentDescription = null, tint = Teal, modifier = Modifier.size(24.dp))
+                    Column {
+                        Text("Title-based discovery is next", fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(4.dp))
+                        Text("This build adds real provider submission. Searchable catalogs and release matching are being built separately so results aren't fabricated.", color = Muted, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibraryScreen() {
+    val context = LocalContext.current
+    val store = remember { ProviderStore(context.applicationContext) }
+    val scope = rememberCoroutineScope()
+    var provider by remember { mutableStateOf(ProviderStore.REAL_DEBRID) }
+    var items by remember { mutableStateOf<List<ProviderLibraryItem>>(emptyList()) }
+    var status by remember { mutableStateOf("Choose a provider and load its items.") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf(false) }
+
+    Column(Modifier.fillMaxSize()) {
+        Column(Modifier.padding(start = 22.dp, end = 22.dp, top = 28.dp, bottom = 12.dp)) {
+            BrandHeader()
+            Text("Your library", fontSize = 29.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(6.dp))
+            Text("Items currently stored with your provider.", color = Muted, fontSize = 14.sp)
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = { provider = ProviderStore.REAL_DEBRID; items = emptyList(); status = "Ready to load Real-Debrid."; error = false },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (provider == ProviderStore.REAL_DEBRID) Teal else Panel, contentColor = if (provider == ProviderStore.REAL_DEBRID) Background else Color.White)
+                ) { Text("Real-Debrid") }
+                Button(
+                    onClick = { provider = ProviderStore.TORBOX; items = emptyList(); status = "Ready to load TorBox."; error = false },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (provider == ProviderStore.TORBOX) Teal else Panel, contentColor = if (provider == ProviderStore.TORBOX) Background else Color.White)
+                ) { Text("TorBox") }
+            }
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    if (!store.hasToken(provider)) {
+                        status = "Connect this provider in Services first."
+                        error = true
+                    } else {
+                        busy = true
+                        status = "Loading your provider library…"
+                        error = false
+                        scope.launch {
+                            val result = withContext(Dispatchers.IO) { runCatching { store.fetchLibrary(provider) } }
+                            busy = false
+                            result.onSuccess {
+                                items = it
+                                status = if (it.isEmpty()) "No items returned by this provider yet." else "Loaded " + it.size + " item(s)."
+                                error = false
+                            }.onFailure {
+                                status = it.message ?: "Could not load library."
+                                error = true
+                            }
+                        }
+                    }
+                },
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Panel, contentColor = Teal)
+            ) {
+                if (busy) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Teal)
+                Spacer(Modifier.size(8.dp))
+                Text(if (busy) "Loading…" else "Refresh library")
+            }
+            Text(status, color = if (error) ErrorRed else Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+        }
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 18.dp, end = 18.dp, bottom = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            items(items.size) { index ->
+                val item = items[index]
+                Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(16.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text(item.title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        Text(item.status + " · " + item.progress + "% · ID " + item.id, color = Muted, fontSize = 12.sp)
+                        Box(Modifier.fillMaxWidth().height(4.dp).background(Background, RoundedCornerShape(3.dp))) {
+                            Box(Modifier.fillMaxWidth(item.progress / 100f).height(4.dp).background(Teal, RoundedCornerShape(3.dp)))
+                        }
+                    }
+                }
             }
         }
     }
