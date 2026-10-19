@@ -197,8 +197,7 @@ class ProviderStore(context: Context) {
         require(secret.isNotEmpty()) { "Connect this provider in Services first." }
         val raw = input.trim()
         val hash = Regex("(?i)(?:btih:)?([a-f0-9]{40})").find(raw)?.groupValues?.get(1)?.lowercase()
-            ?: Regex("(?i)(?:btih:)?([a-z2-7]{32})").find(raw)?.groupValues?.get(1)?.lowercase()
-            ?: throw IllegalArgumentException("Enter a 40-character info hash or a magnet link containing one.")
+            ?: throw IllegalArgumentException("Enter a 40-character hexadecimal info hash or a magnet link containing one.")
 
         val endpoint = when (provider) {
             REAL_DEBRID -> "https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/$hash"
