@@ -488,6 +488,9 @@ private fun DiscoverScreen() {
                                     titleBusy = false
                                     result.onSuccess {
                                         titleResults = it
+                                        selectedTitle = null
+                                        releaseResults = emptyList()
+                                        releaseStatus = ""
                                         titleStatus = if (it.isEmpty()) "No matching titles found." else "Found " + it.size + " title(s)."
                                     }.onFailure {
                                         titleStatus = it.message ?: "Title search failed."
@@ -518,13 +521,19 @@ private fun DiscoverScreen() {
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                     verticalAlignment = Alignment.Top
                 ) {
-                    AsyncImage(
-                        model = result.posterUrl.takeIf { it.isNotBlank() },
-                        contentDescription = result.title + " poster",
-                        modifier = Modifier.size(width = 94.dp, height = 138.dp)
+                    Box(
+                        Modifier.size(width = 94.dp, height = 138.dp)
                             .background(Background, RoundedCornerShape(10.dp)),
-                        contentScale = ContentScale.Crop
-                    )
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(result.title.take(1).uppercase(), color = Teal, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                        AsyncImage(
+                            model = result.posterUrl.takeIf { it.isNotBlank() },
+                            contentDescription = result.title + " poster",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(result.title, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
