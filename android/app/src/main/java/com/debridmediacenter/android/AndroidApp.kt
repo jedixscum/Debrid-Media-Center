@@ -75,6 +75,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
+import androidx.media3.common.C
+import androidx.media3.ui.TrackSelectionDialogBuilder
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -91,37 +94,87 @@ fun DebridMediaCenterApp() {
     val context = LocalContext.current
     val store = remember { ProviderStore(context.applicationContext) }
     val scope = rememberCoroutineScope()
+    val collectionStore = remember { MediaCollectionStore(context.applicationContext) }
     var tab by remember { mutableIntStateOf(0) }
     var playerUrl by remember { mutableStateOf<String?>(null) }
+    var playerItem by remember { mutableStateOf<MediaSearchResult?>(null) }
+    var resumePositionMs by remember { mutableStateOf(0L) }
+    var detailsItem by remember { mutableStateOf<MediaSearchResult?>(null) }
+    var pendingSelection by remember { mutableStateOf<MediaSearchResult?>(null) }
 
     MaterialTheme(colorScheme = darkColorScheme(primary = Teal, background = Bg, surface = Panel)) {
         Surface(Modifier.fillMaxSize(), color = Bg, contentColor = Color.White) {
-            if (playerUrl != null) {
-                DmcPlayer(playerUrl!!) { playerUrl = null }
-            } else {
-                Column(Modifier.fillMaxSize()) {
-                    Column(Modifier.weight(1f).fillMaxWidth()) {
-                        when (tab) {
-                            0 -> HomeScreen(store) { tab = it }
-                            1 -> DiscoverScreen(store, scope) { playerUrl = it }
-                            2 -> LibraryScreen(store, scope, goServices = { tab = 3 }, onPlay = { playerUrl = it })
-                            else -> SettingsScreen(store, scope) { destination -> tab = destination }
-                        }
+            when {
+                playerUrl != null -> DmcPlayer(
+                    url = playerUrl!!,
+                    item = playerItem ?: MediaSearchResult("direct", "direct", "Now playing", "", ""),
+                    collectionStore = collectionStore,
+                    initialPositionMs = resumePositionMs,
+                    onClose = { playerUrl = null; playerItem = null; resumePositionMs = 0L }
+                )
+                detailsItem != null -> MediaDetailsScreen(
+                    item = detailsItem!!,
+                    collectionStore = collectionStore,
+                    onBack = { detailsItem = null },
+                    onFindReleases = { selected ->
+                        pendingSelection = selected
+                        detailsItem = null
+                        tab = 1
                     }
-                    NavigationBar(containerColor = Panel) {
-                        val nav = listOf(
-                            "Home" to Icons.Default.Home,
-                            "Discover" to Icons.Default.Search,
-                            "Library" to Icons.Default.Folder,
-                            "Settings" to Icons.Default.Settings
-                        )
-                        nav.forEachIndexed { index, item ->
-                            NavigationBarItem(
-                                selected = tab == index,
-                                onClick = { tab = index },
-                                icon = { Icon(item.second, contentDescription = item.first) },
-                                label = { Text(item.first, fontSize = 9.sp) }
+                )
+                else -> {
+                    Column(Modifier.fillMaxSize()) {
+                        Column(Modifier.weight(1f).fillMaxWidth()) {
+                            when (tab) {
+                                0 -> HomeScreen(
+                                    store = store,
+                                    collectionStore = collectionStore,
+                                    onNavigate = { tab = it },
+                                    onOpenDetails = { detailsItem = it },
+                                    onResume = { entry ->
+                                        val savedUrl = collectionStore.playbackUrl(entry)
+                                        if (savedUrl != null) {
+                                            playerItem = entry.item
+                                            resumePositionMs = entry.positionMs
+                                            playerUrl = savedUrl
+                                        }
+                                    }
+                                )
+                                1 -> DiscoverScreen(
+                                    store = store,
+                                    scope = scope,
+                                    initialSelection = pendingSelection,
+                                    onSelectionConsumed = { pendingSelection = null },
+                                    onDetails = { detailsItem = it },
+                                    onPlay = { url, item ->
+                                        playerItem = item
+                                        resumePositionMs = 0L
+                                        playerUrl = url
+                                    }
+                                )
+                                2 -> LibraryScreen(store, scope, onPlay = { url, item ->
+                                    playerItem = item
+                                    resumePositionMs = 0L
+                                    playerUrl = url
+                                })
+                                else -> SettingsScreen(store, scope, collectionStore) { destination -> tab = destination }
+                            }
+                        }
+                        NavigationBar(containerColor = Panel) {
+                            val nav = listOf(
+                                "Home" to Icons.Default.Home,
+                                "Discover" to Icons.Default.Search,
+                                "Library" to Icons.Default.Folder,
+                                "Settings" to Icons.Default.Settings
                             )
+                            nav.forEachIndexed { index, item ->
+                                NavigationBarItem(
+                                    selected = tab == index,
+                                    onClick = { tab = index },
+                                    icon = { Icon(item.second, contentDescription = item.first) },
+                                    label = { Text(item.first, fontSize = 9.sp) }
+                                )
+                            }
                         }
                     }
                 }
@@ -142,7 +195,7 @@ private fun Header(title: String, subtitle: String) {
 }
 
 @Composable
-private fun HomeScreen(store: ProviderStore, go: (Int) -> Unit) {
+private fun HomeScreen(store: ProviderStore, collectionStore: MediaCollectionStore, onNavigate: (Int) -> Unit, onOpenDetails: (MediaSearchResult) -> Unit, onResume: (WatchHistoryEntry) -> Unit) {
     var movies by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }
     var shows by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -176,7 +229,7 @@ private fun HomeScreen(store: ProviderStore, go: (Int) -> Unit) {
                         Text("Your personal cinema", color = Muted, fontSize = 11.sp)
                     }
                     Spacer(Modifier.weight(1f))
-                    IconButton(onClick = { go(3) }) {
+                    IconButton(onClick = { onNavigate(3) }) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Muted)
                     }
                 }
@@ -189,7 +242,7 @@ private fun HomeScreen(store: ProviderStore, go: (Int) -> Unit) {
         item {
             val featured = movies.firstOrNull() ?: shows.firstOrNull()
             Card(
-                onClick = { go(1) },
+                onClick = { onNavigate(1) },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
                 colors = CardDefaults.cardColors(containerColor = Panel2),
                 shape = RoundedCornerShape(24.dp)
@@ -229,7 +282,7 @@ private fun HomeScreen(store: ProviderStore, go: (Int) -> Unit) {
                                 color = Muted, fontSize = 11.sp, lineHeight = 16.sp
                             )
                             Button(
-                                onClick = { go(1) },
+                                onClick = { onNavigate(1) },
                                 colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Bg),
                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                             ) {
@@ -243,14 +296,21 @@ private fun HomeScreen(store: ProviderStore, go: (Int) -> Unit) {
             }
         }
         item {
-            HomeCatalogRow("Popular movies", movies, loading) { go(1) }
+            val history = collectionStore.continueWatching()
+            if (history.isNotEmpty()) HomeHistoryRow(history, onResume)
         }
         item {
-            HomeCatalogRow("Popular series", shows, loading) { go(1) }
+            HomeCollectionRow("Your watchlist", collectionStore.watchlist(), onOpenDetails)
+        }
+        item {
+            HomeCatalogRow("Popular movies", movies, loading) { onNavigate(1) }
+        }
+        item {
+            HomeCatalogRow("Popular series", shows, loading) { onNavigate(1) }
         }
         item {
             Card(
-                onClick = { go(3) },
+                onClick = { onNavigate(3) },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
                 colors = CardDefaults.cardColors(containerColor = Panel),
                 shape = RoundedCornerShape(18.dp)
@@ -284,7 +344,7 @@ private fun HomeScreen(store: ProviderStore, go: (Int) -> Unit) {
         }
         item {
             OutlinedButton(
-                onClick = { go(1) },
+                onClick = { onNavigate(1) },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
                 contentPadding = PaddingValues(vertical = 14.dp)
             ) {
@@ -368,7 +428,7 @@ private fun HomeCard(title: String, body: String, icon: androidx.compose.ui.grap
 }
 
 @Composable
-private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, onPlay: (String) -> Unit) {
+private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, initialSelection: MediaSearchResult?, onSelectionConsumed: () -> Unit, onDetails: (MediaSearchResult) -> Unit, onPlay: (String, MediaSearchResult) -> Unit) {
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }
     var selected by remember { mutableStateOf<MediaSearchResult?>(null) }
@@ -381,6 +441,7 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, onPlay: 
     var busy by remember { mutableStateOf(false) }
     var activeTool by remember { mutableStateOf<String?>(null) }
     var contentType by remember { mutableStateOf("movie") }
+    var searchType by remember { mutableStateOf("All") }
     var selectedGenre by remember { mutableStateOf("All") }
     var featured by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }
     var recent by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }
@@ -424,6 +485,13 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, onPlay: 
         status = "Selected ${item.title}. Choose a provider and find releases."
     }
 
+    LaunchedEffect(initialSelection) {
+        initialSelection?.let {
+            chooseTitle(it)
+            onSelectionConsumed()
+        }
+    }
+
     LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(bottom = 28.dp)) {
         item { Header("Discover", "Find something worth watching.") }
         item {
@@ -462,7 +530,14 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, onPlay: 
                 }
             }
             if (selected == null) {
-                items(results, key = { it.id }) { item -> MediaResultCard(item) { chooseTitle(item) } }
+                item {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("All", "Movies", "TV Shows").forEach { kind ->
+                            FilterChip(selected = searchType == kind, onClick = { searchType = kind }, label = { Text(kind) })
+                        }
+                    }
+                }
+                items(results.filter { searchType == "All" || (searchType == "Movies" && it.type == "movie") || (searchType == "TV Shows" && it.type != "movie") }, key = { it.id }) { item -> MediaResultCard(item) { onDetails(item) } }
             } else {
                 item { SelectedTitleCard(selected!!) { selected = null; releases = emptyList() } }
                 item {
@@ -524,7 +599,7 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, onPlay: 
                         Text("BUILT-IN PLAYER", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         Text("Paste a direct media link, or play an item from your provider library.", color = Muted, fontSize = 12.sp)
                         OutlinedTextField(directUrl, { directUrl = it }, label = { Text("Direct media URL") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                        Button(onClick = { onPlay(directUrl.trim()) }, enabled = (directUrl.startsWith("https://", true) || directUrl.startsWith("http://", true)), modifier = Modifier.fillMaxWidth()) { Text("Play") }
+                        Button(onClick = { val url = directUrl.trim(); onPlay(url, MediaSearchResult("direct:${url.hashCode()}", "direct", url.substringAfterLast('/').take(60).ifBlank { "Direct media" }, "", "")) }, enabled = (directUrl.startsWith("https://", true) || directUrl.startsWith("http://", true)), modifier = Modifier.fillMaxWidth()) { Text("Play") }
                     }
                 }
             }
@@ -539,7 +614,7 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, onPlay: 
         if (catalogBusy && featured.isEmpty()) {
             item { BoxLoading() }
         } else if (featured.isNotEmpty()) {
-            item { FeaturedHero(featured.first(), ::chooseTitle) }
+            item { FeaturedHero(featured.first(), onDetails) }
         }
 
         item {
@@ -563,7 +638,7 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, onPlay: 
         } else if (genreTitles.isNotEmpty()) {
             item {
                 LazyRow(contentPadding = PaddingValues(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(genreTitles, key = { "genre-${it.id}" }) { item -> PosterTile(item) { chooseTitle(item) } }
+                    items(genreTitles, key = { "genre-${it.id}" }) { item -> PosterTile(item) { onDetails(item) } }
                 }
             }
         } else {
@@ -584,7 +659,7 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, onPlay: 
         } else if (recent.isNotEmpty()) {
             item {
                 LazyRow(contentPadding = PaddingValues(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(recent, key = { "recent-${it.id}" }) { item -> PosterTile(item) { chooseTitle(item) } }
+                    items(recent, key = { "recent-${it.id}" }) { item -> PosterTile(item) { onDetails(item) } }
                 }
             }
         } else {
@@ -802,8 +877,7 @@ private fun searchTitles(query: String): List<MediaSearchResult> {
 private fun LibraryScreen(
     store: ProviderStore,
     scope: CoroutineScope,
-    goServices: () -> Unit,
-    onPlay: (String) -> Unit
+    onPlay: (String, MediaSearchResult) -> Unit
 ) {
     var items by remember { mutableStateOf<List<ProviderLibraryItem>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
@@ -980,7 +1054,7 @@ private fun LibraryScreen(
                                     }
                                     playBusy = false
                                     playingId = null
-                                    result.onSuccess { onPlay(it) }
+                                    result.onSuccess { onPlay(it, MediaSearchResult("library:${item.provider}:${item.id}", "library", item.title, "", "")) }
                                         .onFailure { error = it.message ?: "Could not prepare playback for this item." }
                                 }
                             },
@@ -1082,7 +1156,7 @@ private fun ProviderCard(store: ProviderStore, scope: CoroutineScope, provider: 
 }
 
 @Composable
-private fun SettingsScreen(store: ProviderStore, scope: CoroutineScope, go: (Int) -> Unit) {
+private fun SettingsScreen(store: ProviderStore, scope: CoroutineScope, collectionStore: MediaCollectionStore, go: (Int) -> Unit) {
     val context = LocalContext.current
     val preferences = remember { context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE) }
     var compactPosters by remember { mutableStateOf(preferences.getBoolean("compact_posters", false)) }
@@ -1141,8 +1215,17 @@ private fun SettingsScreen(store: ProviderStore, scope: CoroutineScope, go: (Int
             }
         }
         item {
+            SettingsSection("PERSONAL MEDIA", "Your watchlist and viewing progress stay on this device.") {
+                SettingsStatusRow("Watchlist", "${collectionStore.watchlist().size} saved", true)
+                SettingsStatusRow("Viewing history", "${collectionStore.history().size} titles", true)
+                OutlinedButton(onClick = { collectionStore.clearHistory() }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Clear viewing history")
+                }
+            }
+        }
+        item {
             SettingsSection("QUICK ACTIONS", "Jump straight to common tasks.") {
-                OutlinedButton(onClick = { go(1) }, modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = { onNavigate(1) }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.Search, contentDescription = null)
                     Spacer(Modifier.size(8.dp))
                     Text("Discover movies and shows")
@@ -1202,14 +1285,29 @@ private fun SettingsStatusRow(label: String, value: String, positive: Boolean) {
 }
 
 @Composable
-private fun DmcPlayer(url: String, onClose: () -> Unit) {
+private fun DmcPlayer(
+    url: String,
+    item: MediaSearchResult,
+    collectionStore: MediaCollectionStore,
+    initialPositionMs: Long,
+    onClose: () -> Unit
+) {
     val context = LocalContext.current
     var playbackError by remember(url) { mutableStateOf("") }
+    var playbackSpeed by remember(url) { mutableStateOf(1f) }
     val player = remember(url) {
         ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(Uri.parse(url)))
+            setMediaItem(MediaItem.fromUri(Uri.parse(url)), initialPositionMs.coerceAtLeast(0L))
             playWhenReady = true
             prepare()
+        }
+    }
+
+    LaunchedEffect(player, url, item) {
+        while (true) {
+            delay(10_000)
+            val duration = player.duration.takeIf { it > 0L } ?: 0L
+            runCatching { collectionStore.saveProgress(item, url, player.currentPosition, duration) }
         }
     }
     androidx.compose.runtime.DisposableEffect(player) {
@@ -1220,6 +1318,8 @@ private fun DmcPlayer(url: String, onClose: () -> Unit) {
         }
         player.addListener(listener)
         onDispose {
+            val duration = player.duration.takeIf { it > 0L } ?: 0L
+            runCatching { collectionStore.saveProgress(item, url, player.currentPosition, duration) }
             player.removeListener(listener)
             player.release()
         }
@@ -1230,8 +1330,10 @@ private fun DmcPlayer(url: String, onClose: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("NOW PLAYING", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.weight(1f))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("NOW PLAYING", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text(item.title, color = Color.White, fontSize = 12.sp, maxLines = 1)
+            }
             if (playbackError.isNotBlank()) {
                 OutlinedButton(onClick = {
                     playbackError = ""
@@ -1255,5 +1357,26 @@ private fun DmcPlayer(url: String, onClose: () -> Unit) {
             update = { it.player = player },
             modifier = Modifier.fillMaxWidth().weight(1f)
         )
+        Column(Modifier.fillMaxWidth().background(Panel).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("PLAYBACK SPEED", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(0.75f, 1f, 1.25f, 1.5f, 2f).forEach { speed ->
+                    FilterChip(
+                        selected = playbackSpeed == speed,
+                        onClick = { playbackSpeed = speed; player.setPlaybackSpeed(speed) },
+                        modifier = Modifier.weight(1f),
+                        label = { Text(if (speed == 1f) "1×" else "${speed}×", fontSize = 10.sp) }
+                    )
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { TrackSelectionDialogBuilder(context, "Audio track", player, C.TRACK_TYPE_AUDIO).build().show() }, modifier = Modifier.weight(1f)) {
+                    Text("Audio")
+                }
+                OutlinedButton(onClick = { TrackSelectionDialogBuilder(context, "Subtitles", player, C.TRACK_TYPE_TEXT).build().show() }, modifier = Modifier.weight(1f)) {
+                    Text("Subtitles")
+                }
+            }
+        }
     }
 }
