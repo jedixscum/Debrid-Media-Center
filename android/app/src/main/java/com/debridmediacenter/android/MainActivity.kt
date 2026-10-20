@@ -429,6 +429,11 @@ private fun DiscoverScreen() {
     var titleResults by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }
     var titleStatus by remember { mutableStateOf("Search movies and TV shows by title.") }
     var titleBusy by remember { mutableStateOf(false) }
+    var selectedTitle by remember { mutableStateOf<MediaSearchResult?>(null) }
+    var releaseResults by remember { mutableStateOf<List<ReleaseSearchResult>>(emptyList()) }
+    var releaseStatus by remember { mutableStateOf("") }
+    var releaseBusy by remember { mutableStateOf(false) }
+    var releaseActionBusy by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Paste a magnet link to add it to your selected provider.") }
     var error by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
@@ -528,6 +533,112 @@ private fun DiscoverScreen() {
                         if (result.year.isNotBlank()) Text(result.year, color = Muted, fontSize = 12.sp)
                         if (result.overview.isNotBlank()) Text(result.overview, color = Muted, fontSize = 12.sp, maxLines = 5)
                         Text("IMDb / Trakt ID: " + result.id, color = Muted.copy(alpha = .8f), fontSize = 10.sp)
+                        Button(
+                            onClick = {
+                                selectedTitle = result
+                                releaseResults = emptyList()
+                                releaseBusy = true
+                                releaseStatus = "Searching available releases…"
+                                scope.launch {
+                                    val response = withContext(Dispatchers.IO) {
+                                        runCatching {
+                                            store.searchReleases(
+                                                result.id,
+                                                if (result.type == "show") "tv" else "movie"
+                                            )
+                                        }
+                                    }
+                                    releaseBusy = false
+                                    response.onSuccess {
+                                        releaseResults = it
+                                        releaseStatus = if (it.isEmpty()) "No releases were returned for this title." else "Found " + it.size + " release(s)."
+                                    }.onFailure {
+                                        releaseStatus = it.message ?: "Release search failed."
+                                    }
+                                }
+                            },
+                            enabled = !releaseBusy && result.id.startsWith("tt"),
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Background),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text(if (releaseBusy && selectedTitle?.id == result.id) "Searching releases…" else "Find releases", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+        if (selectedTitle != null) {
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("RELEASES · " + selectedTitle!!.title.uppercase(), color = Teal, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+                        if (releaseBusy) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Teal)
+                                Text(releaseStatus, color = Muted, fontSize = 12.sp)
+                            }
+                        } else {
+                            Text(releaseStatus, color = Muted, fontSize = 12.sp)
+                        }
+                        Text("Release search is provided by DMM and requires an active sponsor API key in Services.", color = Muted, fontSize = 11.sp)
+                    }
+                }
+            }
+            items(releaseResults.size) { index ->
+                val release = releaseResults[index]
+                Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(16.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(release.title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text(
+                            if (release.sizeMb > 0) String.format(java.util.Locale.US, "%.2f GB · %s", release.sizeMb / 1024.0, release.hash)
+                            else release.hash,
+                            color = Muted, fontSize = 11.sp
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = {
+                                    val actionKey = release.hash + ProviderStore.REAL_DEBRID
+                                    releaseActionBusy = actionKey
+                                    releaseStatus = "Adding release to Real-Debrid…"
+                                    scope.launch {
+                                        val response = withContext(Dispatchers.IO) {
+                                            runCatching { store.addMagnet(ProviderStore.REAL_DEBRID, "magnet:?xt=urn:btih:${release.hash}") }
+                                        }
+                                        releaseActionBusy = ""
+                                        response.onSuccess { releaseStatus = it }
+                                            .onFailure { releaseStatus = it.message ?: "Could not add release." }
+                                    }
+                                },
+                                enabled = releaseActionBusy.isBlank(),
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Background),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text(if (releaseActionBusy == release.hash + ProviderStore.REAL_DEBRID) "Adding…" else "Add to RD", fontWeight = FontWeight.Bold)
+                            }
+                            Button(
+                                onClick = {
+                                    val actionKey = release.hash + ProviderStore.TORBOX
+                                    releaseActionBusy = actionKey
+                                    releaseStatus = "Adding release to TorBox…"
+                                    scope.launch {
+                                        val response = withContext(Dispatchers.IO) {
+                                            runCatching { store.addMagnet(ProviderStore.TORBOX, "magnet:?xt=urn:btih:${release.hash}") }
+                                        }
+                                        releaseActionBusy = ""
+                                        response.onSuccess { releaseStatus = it }
+                                            .onFailure { releaseStatus = it.message ?: "Could not add release." }
+                                    }
+                                },
+                                enabled = releaseActionBusy.isBlank(),
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = Panel, contentColor = Teal),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text(if (releaseActionBusy == release.hash + ProviderStore.TORBOX) "Adding…" else "Add to TorBox", fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
                 }
             }
