@@ -28,3 +28,6 @@ where = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.setuptools.package-data]
+debrid_media_center = ["qml/*.qml"]
