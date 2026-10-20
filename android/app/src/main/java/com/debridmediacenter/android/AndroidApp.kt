@@ -242,7 +242,7 @@ private fun HomeScreen(store: ProviderStore, collectionStore: MediaCollectionSto
         item {
             val featured = movies.firstOrNull() ?: shows.firstOrNull()
             Card(
-                onClick = { onNavigate(1) },
+                onClick = { featured?.let(onOpenDetails) },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
                 colors = CardDefaults.cardColors(containerColor = Panel2),
                 shape = RoundedCornerShape(24.dp)
@@ -282,7 +282,8 @@ private fun HomeScreen(store: ProviderStore, collectionStore: MediaCollectionSto
                                 color = Muted, fontSize = 11.sp, lineHeight = 16.sp
                             )
                             Button(
-                                onClick = { onNavigate(1) },
+                                onClick = { featured?.let(onOpenDetails) },
+                                enabled = featured != null,
                                 colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Bg),
                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                             ) {
@@ -303,10 +304,10 @@ private fun HomeScreen(store: ProviderStore, collectionStore: MediaCollectionSto
             HomeCollectionRow("Your watchlist", collectionStore.watchlist(), onOpenDetails)
         }
         item {
-            HomeCatalogRow("Popular movies", movies, loading) { onNavigate(1) }
+            HomeCatalogRow("Popular movies", movies, loading, onSeeAll = { onNavigate(1) }, onOpenDetails = onOpenDetails)
         }
         item {
-            HomeCatalogRow("Popular series", shows, loading) { onNavigate(1) }
+            HomeCatalogRow("Popular series", shows, loading, onSeeAll = { onNavigate(1) }, onOpenDetails = onOpenDetails)
         }
         item {
             Card(
@@ -436,7 +437,13 @@ private fun HomeCollectionRow(
 }
 
 @Composable
-private fun HomeCatalogRow(title: String, items: List<MediaSearchResult>, loading: Boolean, onSeeAll: () -> Unit) {
+private fun HomeCatalogRow(
+    title: String,
+    items: List<MediaSearchResult>,
+    loading: Boolean,
+    onSeeAll: () -> Unit,
+    onOpenDetails: (MediaSearchResult) -> Unit
+) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 18.dp),
@@ -451,7 +458,9 @@ private fun HomeCatalogRow(title: String, items: List<MediaSearchResult>, loadin
                 color = Teal,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(4.dp)
+                modifier = Modifier
+                    .padding(4.dp)
+                    .clickable(onClick = onSeeAll)
             )
         }
         if (items.isEmpty()) {
@@ -472,7 +481,7 @@ private fun HomeCatalogRow(title: String, items: List<MediaSearchResult>, loadin
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Card(
-                            onClick = onSeeAll,
+                            onClick = { onOpenDetails(item) },
                             shape = RoundedCornerShape(14.dp),
                             colors = CardDefaults.cardColors(containerColor = Panel2)
                         ) {
