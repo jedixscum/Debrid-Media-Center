@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -54,6 +56,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -98,7 +101,7 @@ fun DebridMediaCenterApp() {
                 Column(Modifier.fillMaxSize()) {
                     Column(Modifier.weight(1f).fillMaxWidth()) {
                         when (tab) {
-                            0 -> HomeScreen { tab = it }
+                            0 -> HomeScreen(store) { tab = it }
                             1 -> DiscoverScreen(store, scope) { playerUrl = it }
                             2 -> LibraryScreen { tab = 3 }
                             3 -> ServicesScreen(store, scope)
@@ -140,13 +143,261 @@ private fun Header(title: String, subtitle: String) {
 }
 
 @Composable
-private fun HomeScreen(go: (Int) -> Unit) {
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 20.dp)) {
-        item { Header("Your media, unified.", "Search titles, find releases and play your authorized media.") }
-        item { HomeCard("DISCOVER", "Search movies and shows with posters and release options.", Icons.Default.Search) { go(1) } }
-        item { HomeCard("LIBRARY", "Manage your provider content.", Icons.Default.Folder) { go(2) } }
-        item { HomeCard("SERVICES", "Connect Real-Debrid and TorBox securely.", Icons.Default.Cloud) { go(3) } }
-        item { HomeCard("PLAYER", "Play a direct media URL inside the app.", Icons.Default.PlayArrow) { go(1) } }
+private fun HomeScreen(store: ProviderStore, go: (Int) -> Unit) {
+    var movies by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }
+    var shows by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        val catalog = withContext(Dispatchers.IO) {
+            val movieRows = runCatching { fetchCatalogTitles("movie", "imdbRating") }.getOrDefault(emptyList())
+            val showRows = runCatching { fetchCatalogTitles("series", "imdbRating") }.getOrDefault(emptyList())
+            movieRows to showRows
+        }
+        movies = catalog.first
+        shows = catalog.second
+        loading = false
+    }
+
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+        contentPadding = PaddingValues(bottom = 28.dp)
+    ) {
+        item {
+            Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 24.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(
+                        Modifier.size(34.dp).background(Teal.copy(alpha = 0.13f), RoundedCornerShape(11.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Movie, contentDescription = null, tint = Teal, modifier = Modifier.size(21.dp))
+                    }
+                    Column {
+                        Text("DEBRID MEDIA CENTER", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                        Text("Your personal cinema", color = Muted, fontSize = 11.sp)
+                    }
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = { go(4) }) {
+                        Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Muted)
+                    }
+                }
+                Spacer(Modifier.height(22.dp))
+                Text("What are we watching?", fontSize = 27.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
+                Text("Discover something great and play it your way.", color = Muted, fontSize = 13.sp)
+            }
+        }
+        item {
+            val featured = movies.firstOrNull() ?: shows.firstOrNull()
+            Card(
+                onClick = { go(1) },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                colors = CardDefaults.cardColors(containerColor = Panel2),
+                shape = RoundedCornerShape(24.dp)
+            ) {
+                Box {
+                    Box(
+                        Modifier.matchParentSize().background(
+                            Brush.horizontalGradient(listOf(Color(0xFF173A40), Panel2, Panel))
+                        )
+                    )
+                    Row(
+                        Modifier.fillMaxWidth().padding(18.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (featured?.posterUrl?.isNotBlank() == true) {
+                            AsyncImage(
+                                model = featured.posterUrl,
+                                contentDescription = featured.title,
+                                modifier = Modifier.size(112.dp, 158.dp).background(Panel, RoundedCornerShape(14.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Box(
+                                Modifier.size(112.dp, 158.dp).background(Panel, RoundedCornerShape(14.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Movie, contentDescription = null, tint = Teal, modifier = Modifier.size(38.dp))
+                            }
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("TONIGHT'S SPOTLIGHT", color = Teal, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                            Text(featured?.title ?: "Your next favorite", fontSize = 20.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                featured?.let { "${it.year.ifBlank { "Featured pick" }} · Curated for discovery" }
+                                    ?: "Explore movies and series, then find a release from your provider.",
+                                color = Muted, fontSize = 11.sp, lineHeight = 16.sp
+                            )
+                            Button(
+                                onClick = { go(1) },
+                                colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Bg),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(17.dp))
+                                Spacer(Modifier.size(5.dp))
+                                Text("Explore titles", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            Column(Modifier.padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Your shortcuts", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    HomeActionTile("Discover", "Find a title", Icons.Default.Search, Modifier.weight(1f)) { go(1) }
+                    HomeActionTile("My library", "Your collection", Icons.Default.Folder, Modifier.weight(1f)) { go(2) }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    HomeActionTile(
+                        "Real-Debrid",
+                        if (store.hasToken(ProviderStore.REAL_DEBRID)) "Connected key saved" else "Connect account",
+                        Icons.Default.Cloud,
+                        Modifier.weight(1f)
+                    ) { go(3) }
+                    HomeActionTile(
+                        "TorBox",
+                        if (store.hasToken(ProviderStore.TORBOX)) "Connected key saved" else "Connect account",
+                        Icons.Default.Link,
+                        Modifier.weight(1f)
+                    ) { go(3) }
+                }
+            }
+        }
+        item {
+            HomeCatalogRow("Popular movies", movies, loading) { go(1) }
+        }
+        item {
+            HomeCatalogRow("Popular series", shows, loading) { go(1) }
+        }
+        item {
+            Card(
+                onClick = { go(3) },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                colors = CardDefaults.cardColors(containerColor = Panel),
+                shape = RoundedCornerShape(18.dp)
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(Modifier.size(42.dp).background(Teal.copy(alpha = 0.12f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.Cloud, contentDescription = null, tint = Teal)
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("Your streaming services", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        val connected = listOf(
+                            store.hasToken(ProviderStore.REAL_DEBRID),
+                            store.hasToken(ProviderStore.TORBOX)
+                        ).count { it }
+                        Text(
+                            when (connected) {
+                                2 -> "Real-Debrid and TorBox keys are saved"
+                                1 -> "1 provider key saved · finish setup anytime"
+                                else -> "Connect Real-Debrid or TorBox to get started"
+                            },
+                            color = Muted, fontSize = 11.sp
+                        )
+                    }
+                    Icon(Icons.Default.Link, contentDescription = "Manage services", tint = Teal, modifier = Modifier.size(19.dp))
+                }
+            }
+        }
+        item {
+            OutlinedButton(
+                onClick = { go(1) },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                contentPadding = PaddingValues(vertical = 14.dp)
+            ) {
+                Icon(Icons.Default.Search, contentDescription = null)
+                Spacer(Modifier.size(8.dp))
+                Text("Search all movies and shows")
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeActionTile(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = Panel),
+        shape = RoundedCornerShape(18.dp)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Box(Modifier.size(36.dp).background(Teal.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                Icon(icon, contentDescription = null, tint = Teal, modifier = Modifier.size(20.dp))
+            }
+            Text(title, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text(subtitle, color = Muted, fontSize = 10.sp, lineHeight = 14.sp)
+        }
+    }
+}
+
+@Composable
+private fun HomeCatalogRow(title: String, items: List<MediaSearchResult>, loading: Boolean, onSeeAll: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("A few picks to get you started", color = Muted, fontSize = 11.sp)
+            }
+            Text(
+                "SEE ALL  ›",
+                color = Teal,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(4.dp)
+            )
+        }
+        if (items.isEmpty()) {
+            Text(
+                if (loading) "Loading titles…" else "Catalog unavailable right now. Try Discover to browse again.",
+                color = Muted,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp)
+            )
+        } else {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 18.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(items.take(12), key = { it.id }) { item ->
+                    Column(
+                        Modifier.width(116.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Card(
+                            onClick = onSeeAll,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = Panel2)
+                        ) {
+                            AsyncImage(
+                                model = item.posterUrl.takeIf { it.isNotBlank() },
+                                contentDescription = item.title,
+                                modifier = Modifier.fillMaxWidth().height(166.dp),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                        Text(item.title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, lineHeight = 15.sp)
+                        Text(item.year.ifBlank { "Movie & TV" }, color = Muted, fontSize = 10.sp)
+                    }
+                }
+            }
+        }
     }
 }
 
