@@ -187,9 +187,13 @@ class ProviderStore(context: Context) {
             }
             val id = json?.optString("id")?.takeIf { it.isNotBlank() && it != "null" }
                 ?: json?.optJSONObject("data")?.optString("torrent_id")?.takeIf { it.isNotBlank() && it != "null" }
+            val selectionWarning = if (provider == REAL_DEBRID && id != null) {
+                runCatching { selectAllRealDebridFiles(id, secret) }.exceptionOrNull()?.message
+            } else null
             return when {
                 provider == TORBOX -> json?.optString("detail")?.takeIf { it.isNotBlank() } ?: "Magnet submitted to TorBox."
-                id != null -> "Magnet added to Real-Debrid · ID $id"
+                id != null && selectionWarning == null -> "Magnet added to Real-Debrid · ID $id · files selected"
+                id != null -> "Magnet added to Real-Debrid · ID $id. Select files in Real-Debrid if playback is unavailable."
                 else -> "Magnet submitted successfully."
             }
         } finally {
@@ -201,6 +205,31 @@ class ProviderStore(context: Context) {
      * Checks a supplied torrent hash or magnet against the selected provider's cached inventory.
      * This does not add anything to the account.
      */
+
+    private fun selectAllRealDebridFiles(itemId: String, secret: String) {
+        val connection = (URL("https://api.real-debrid.com/rest/1.0/torrents/selectFiles/" +
+            URLEncoder.encode(itemId, "UTF-8")).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            doOutput = true
+            connectTimeout = 12000
+            readTimeout = 15000
+            setRequestProperty("Authorization", "Bearer $secret")
+            setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+            setRequestProperty("Accept", "application/json")
+        }
+        try {
+            OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { it.write("files=all") }
+            val code = connection.responseCode
+            if (code !in 200..299) {
+                val stream = connection.errorStream
+                val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                val detail = runCatching { JSONObject(body).optString("error") }.getOrNull()
+                throw IllegalStateException(detail?.takeIf { it.isNotBlank() }
+                    ?: "Real-Debrid accepted the magnet but file selection failed (HTTP $code).")
+            }
+        } finally { connection.disconnect() }
+    }
+
     fun checkCached(provider: String, input: String): CacheCheckResult {
         val secret = readToken(provider)?.trim().orEmpty()
         require(secret.isNotEmpty()) { "Connect this provider in Services first." }
@@ -494,8 +523,12 @@ class ProviderStore(context: Context) {
                     ?: "Untitled torrent"
                 val id = item.optString("id").takeIf { it.isNotBlank() && it != "null" }
                     ?: item.optString("torrent_id").takeIf { it.isNotBlank() && it != "null" }.orEmpty()
-                val statusText = item.optString("status").takeIf { it.isNotBlank() && it != "null" } ?: "Unknown"
-                val progress = item.optDouble("progress", 0.0).coerceIn(0.0, 100.0).toInt()
+                val statusText = item.optString("status").takeIf { it.isNotBlank() && it != "null" }
+                    ?: item.optString("download_state").takeIf { it.isNotBlank() && it != "null" }
+                    ?: "Unknown"
+                val rawProgress = item.optDouble("progress", 0.0)
+                val normalizedProgress = if (provider == TORBOX && rawProgress in 0.0..1.0) rawProgress * 100.0 else rawProgress
+                val progress = normalizedProgress.coerceIn(0.0, 100.0).toInt()
                 result.add(ProviderLibraryItem(provider, id, title, statusText, progress))
             }
             return result
