@@ -119,15 +119,34 @@ class ProviderStore(context: Context) {
             if (provider == TORBOX && json.has("success") && !json.optBoolean("success", true)) {
                 throw IllegalStateException(json.optString("detail").ifBlank { "TorBox rejected the connection." })
             }
-            val user = if (provider == REAL_DEBRID) {
-                json.optString("username").takeIf { it.isNotBlank() } ?: "account"
-            } else {
-                val data = json.optJSONObject("data") ?: json
-                data.optString("email").takeIf { it.isNotBlank() }
-                    ?: data.optString("username").takeIf { it.isNotBlank() }
-                    ?: "account"
+            val account = if (provider == REAL_DEBRID) json else (json.optJSONObject("data") ?: json)
+            val user = account.optString("username").takeIf { it.isNotBlank() && it != "null" }
+                ?: account.optString("email").takeIf { it.isNotBlank() && it != "null" }
+                ?: "account"
+            val expiryText = listOf("expiration", "premium_expires_at", "expires_at", "premium_expiration")
+                .firstNotNullOfOrNull { key ->
+                    account.optString(key).takeIf { it.isNotBlank() && it != "null" && it != "0" }
+                }
+            val premiumSummary = expiryText?.let { rawExpiry ->
+                runCatching {
+                    val expiry = runCatching { java.time.Instant.parse(rawExpiry) }
+                        .getOrElse { java.time.OffsetDateTime.parse(rawExpiry).toInstant() }
+                    val daysLeft = java.time.Duration.between(java.time.Instant.now(), expiry).toDays()
+                    when {
+                        daysLeft < 0 -> "Premium expired"
+                        daysLeft == 0L -> "Premium expires in less than a day"
+                        else -> "Premium · $daysLeft day${if (daysLeft == 1L) "" else "s"} left"
+                    }
+                }.getOrElse { "Premium expiry: $rawExpiry" }
+            } ?: run {
+                val plan = listOf("plan", "subscription", "type")
+                    .firstNotNullOfOrNull { key ->
+                        account.optString(key).takeIf { it.isNotBlank() && it != "null" && it != "0" }
+                    }
+                plan?.let { "Plan: $it · expiry not provided by API" }
+                    ?: "Account details loaded · expiry not provided by API"
             }
-            return "Connected successfully · $user"
+            return "Connected · $user\n$premiumSummary"
         } finally {
             connection.disconnect()
         }
