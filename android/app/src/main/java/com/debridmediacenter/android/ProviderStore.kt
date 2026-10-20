@@ -43,6 +43,12 @@ data class MediaSearchResult(
     val posterUrl: String = ""
 )
 
+data class ReleaseSearchResult(
+    val title: String,
+    val hash: String,
+    val sizeMb: Double
+)
+
 class ProviderStore(context: Context) {
     private val prefs = context.getSharedPreferences("provider_secrets", Context.MODE_PRIVATE)
     private val keyAlias = "debrid_media_center_provider_key"
@@ -228,6 +234,72 @@ class ProviderStore(context: Context) {
                     ?: "Real-Debrid accepted the magnet but file selection failed (HTTP $code).")
             }
         } finally { connection.disconnect() }
+    }
+
+
+    /**
+     * DMM release search requires the user's own active sponsor API key.
+     * Title metadata search remains available without that optional integration.
+     */
+    fun searchReleases(imdbId: String, mediaType: String, quality: String = "best"): List<ReleaseSearchResult> {
+        val apiKey = readToken(DMM)?.trim().orEmpty()
+        require(apiKey.isNotEmpty()) {
+            "Connect your optional Debrid Media Manager sponsor API key in Services to search releases."
+        }
+        require(imdbId.matches(Regex("^tt\\d+$"))) { "Select a title with a valid IMDb ID first." }
+        require(mediaType == "movie" || mediaType == "tv") { "Unsupported media type." }
+        val connection = (URL("https://debridmediamanager.com/api/zurg/search-torrents").openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            doOutput = true
+            connectTimeout = 15000
+            readTimeout = 25000
+            setRequestProperty("x-api-key", apiKey)
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("Accept", "application/json")
+        }
+        try {
+            val payload = JSONObject()
+                .put("imdbId", imdbId)
+                .put("mediaType", mediaType)
+                .put("quality", quality)
+                .put("limit", 30)
+            OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { it.write(payload.toString()) }
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            val root = runCatching { JSONObject(body) }.getOrNull()
+            if (code !in 200..299) {
+                val detail = root?.optString("error")?.takeIf { it.isNotBlank() && it != "null" }
+                throw IllegalStateException(detail ?: when (code) {
+                    401, 403 -> "DMM rejected the key. An active sponsor API key is required for release search."
+                    429 -> "DMM release search is rate-limited. Wait and retry."
+                    else -> "Release search failed (HTTP $code)."
+                })
+            }
+            val results = mutableListOf<ReleaseSearchResult>()
+            fun addRows(rows: org.json.JSONArray?) {
+                if (rows == null) return
+                for (i in 0 until rows.length()) {
+                    val row = rows.optJSONObject(i) ?: continue
+                    val title = row.optString("title").takeIf { it.isNotBlank() && it != "null" } ?: continue
+                    val hash = row.optString("hash").lowercase().takeIf { it.matches(Regex("^[a-f0-9]{40}$")) } ?: continue
+                    val size = row.optDouble("fileSize", 0.0)
+                    results.add(ReleaseSearchResult(title, hash, size))
+                }
+            }
+            if (mediaType == "movie") {
+                addRows(root?.optJSONArray("results"))
+            } else {
+                val seasons = root?.optJSONObject("seasons")
+                if (seasons != null) {
+                    val keys = seasons.keys()
+                    while (keys.hasNext()) addRows(seasons.optJSONArray(keys.next()))
+                }
+            }
+            return results.distinctBy { it.hash }.sortedByDescending { it.sizeMb }
+        } finally {
+            connection.disconnect()
+        }
     }
 
     fun checkCached(provider: String, input: String): CacheCheckResult {
@@ -566,5 +638,6 @@ class ProviderStore(context: Context) {
     companion object {
         const val REAL_DEBRID = "real_debrid"
         const val TORBOX = "torbox"
+        const val DMM = "dmm"
     }
 }
