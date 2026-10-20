@@ -656,7 +656,7 @@ private fun SettingsScreen() {
         item {
             Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel), shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Version 0.6.0", fontWeight = FontWeight.Bold)
+                    Text("Version 0.7.0", fontWeight = FontWeight.Bold)
                     Text("Native Jetpack Compose client with title search, posters, release discovery, encrypted provider credentials and Media3 playback.", color = Muted, fontSize = 12.sp)
                     Text("This app is designed for authorized media and your own provider accounts.", color = Muted, fontSize = 12.sp)
                 }
