@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -52,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -173,18 +175,50 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, onPlay: 
     var busy by remember { mutableStateOf(false) }
     var activeTool by remember { mutableStateOf<String?>(null) }
     var contentType by remember { mutableStateOf("movie") }
+    var selectedGenre by remember { mutableStateOf("All") }
+    var featured by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }
     var recent by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }
-    var recentBusy by remember { mutableStateOf(true) }
+    var genreTitles by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }
+    var catalogBusy by remember { mutableStateOf(true) }
+    var catalogError by remember { mutableStateOf("") }
+    val genres = listOf("All", "Action", "Adventure", "Animation", "Comedy", "Crime", "Documentary", "Drama", "Family", "Fantasy", "Horror", "Mystery", "Romance", "Sci-Fi", "Thriller")
 
-    LaunchedEffect(contentType) {
-        recentBusy = true
-        val fetched = withContext(Dispatchers.IO) { runCatching { fetchRecentTitles(contentType) } }
-        fetched.onSuccess { recent = it }
-            .onFailure { status = it.message ?: "Couldn't load recent titles." }
-        recentBusy = false
+    LaunchedEffect(contentType, selectedGenre) {
+        catalogBusy = true
+        catalogError = ""
+        val loaded = withContext(Dispatchers.IO) {
+            runCatching {
+                val hero = runCatching { fetchCatalogTitles(contentType, "imdbRating") }.getOrDefault(emptyList())
+                val latest = runCatching { fetchCatalogTitles(contentType, "year", "genre", java.util.Calendar.getInstance().get(java.util.Calendar.YEAR).toString()) }
+                    .getOrElse { emptyList() }
+                    .ifEmpty { fetchCatalogTitles(contentType, "top") }
+                val genreItems = if (selectedGenre == "All") latest else fetchCatalogTitles(contentType, "top", "genre", selectedGenre)
+                Triple(hero.ifEmpty { latest }, latest, genreItems)
+            }
+        }
+        loaded.onSuccess {
+            featured = it.first
+            recent = it.second
+            genreTitles = it.third
+            if (it.second.isEmpty()) catalogError = "No catalog titles were returned. Pull down later to retry."
+        }.onFailure {
+            catalogError = it.message ?: "Couldn't load the discovery catalog."
+            featured = emptyList()
+            recent = emptyList()
+            genreTitles = emptyList()
+        }
+        catalogBusy = false
     }
 
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+    fun chooseTitle(item: MediaSearchResult) {
+        selected = item
+        query = item.title
+        activeTool = "search"
+        releases = emptyList()
+        status = "Selected \${item.title}. Choose a provider and find releases."
+    }
+
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(bottom = 28.dp)) {
         item { Header("Discover", "Find something worth watching.") }
         item {
             Row(
@@ -205,11 +239,14 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, onPlay: 
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             OutlinedTextField(query, { query = it }, label = { Text("Movie or show") }, modifier = Modifier.weight(1f), singleLine = true)
                             Button(enabled = !busy && query.trim().length >= 2, onClick = {
-                                busy = true; status = "Searching…"; selected = null; releases = emptyList()
+                                busy = true
+                                status = "Searching…"
+                                selected = null
+                                releases = emptyList()
                                 scope.launch {
                                     val result = withContext(Dispatchers.IO) { runCatching { searchTitles(query) } }
                                     busy = false
-                                    result.onSuccess { results = it; status = if (it.isEmpty()) "No matching titles found." else "${it.size} titles found." }
+                                    result.onSuccess { results = it; status = if (it.isEmpty()) "No matching titles found." else "\${it.size} titles found." }
                                         .onFailure { results = emptyList(); status = it.message ?: "Search failed." }
                                 }
                             }) { Icon(Icons.Default.Search, contentDescription = "Search") }
@@ -219,9 +256,7 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, onPlay: 
                 }
             }
             if (selected == null) {
-                items(results, key = { it.id }) { item -> MediaResultCard(item) {
-                    selected = item; releases = emptyList(); status = "Selected ${item.title}."
-                } }
+                items(results, key = { it.id }) { item -> MediaResultCard(item) { chooseTitle(item) } }
             } else {
                 item { SelectedTitleCard(selected!!) { selected = null; releases = emptyList() } }
                 item {
@@ -236,12 +271,13 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, onPlay: 
                                 listOf("best", "2160p", "1080p", "720p").forEach { q -> FilterChip(quality == q, { quality = q }, label = { Text(q) }) }
                             }
                             Button(enabled = !busy, onClick = {
-                                busy = true; status = "Searching releases…"
+                                busy = true
+                                status = "Searching releases…"
                                 scope.launch {
                                     val item = selected!!
                                     val result = withContext(Dispatchers.IO) { runCatching { store.searchReleases(item.id, item.type, quality) } }
                                     busy = false
-                                    result.onSuccess { releases = it; status = if (it.isEmpty()) "No releases returned." else "${it.size} releases found." }
+                                    result.onSuccess { releases = it; status = if (it.isEmpty()) "No releases returned." else "\${it.size} releases found." }
                                         .onFailure { status = it.message ?: "Release search failed." }
                                 }
                             }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Bg)) {
@@ -280,38 +316,126 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, onPlay: 
                 Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel2), shape = RoundedCornerShape(18.dp)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("BUILT-IN PLAYER", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text("Paste a direct media link, or play an item from your provider library.", color = Muted, fontSize = 12.sp)
                         OutlinedTextField(directUrl, { directUrl = it }, label = { Text("Direct media URL") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                        Button(onClick = { onPlay(directUrl.trim()) }, enabled = directUrl.startsWith("http", true), modifier = Modifier.fillMaxWidth()) { Text("Play") }
+                        Button(onClick = { onPlay(directUrl.trim()) }, enabled = (directUrl.startsWith("https://", true) || directUrl.startsWith("http://", true)), modifier = Modifier.fillMaxWidth()) { Text("Play") }
                     }
                 }
             }
         }
 
         item {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Discover what's new", fontSize = 23.sp, fontWeight = FontWeight.Bold)
-                Text("Recently released movies and shows", color = Muted, fontSize = 12.sp)
+            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Featured", fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                Text("Highly rated picks to get you started", color = Muted, fontSize = 12.sp)
+            }
+        }
+        if (catalogBusy && featured.isEmpty()) {
+            item { BoxLoading() }
+        } else if (featured.isNotEmpty()) {
+            item { FeaturedHero(featured.first(), ::chooseTitle) }
+        }
+
+        item {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Browse by genre", fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(genres, key = { it }) { genre ->
+                        FilterChip(selected = selectedGenre == genre, onClick = { selectedGenre = genre }, label = { Text(genre) })
+                    }
+                }
+            }
+        }
+        item {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(if (selectedGenre == "All") "Popular picks" else "$selectedGenre picks", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text("Choose a title to search its available releases", color = Muted, fontSize = 12.sp)
+            }
+        }
+        if (catalogBusy && genreTitles.isEmpty()) {
+            item { BoxLoading() }
+        } else if (genreTitles.isNotEmpty()) {
+            item {
+                LazyRow(contentPadding = PaddingValues(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(genreTitles, key = { "genre-\${it.id}" }) { item -> PosterTile(item) { chooseTitle(item) } }
+                }
+            }
+        } else {
+            item { Text("No titles in this genre right now.", color = Muted, modifier = Modifier.padding(horizontal = 18.dp)) }
+        }
+
+        item {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(if (contentType == "movie") "New movies" else "New TV shows", fontSize = 23.sp, fontWeight = FontWeight.Bold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(contentType == "movie", { contentType = "movie" }, label = { Text("Movies") })
                     FilterChip(contentType == "series", { contentType = "series" }, label = { Text("TV Shows") })
                 }
             }
         }
-        if (recentBusy) {
+        if (catalogBusy && recent.isEmpty()) {
             item { BoxLoading() }
-        } else if (recent.isEmpty()) {
+        } else if (recent.isNotEmpty()) {
             item {
-                Text("Recent titles couldn't be loaded. Check your internet connection and try again.", color = Muted, modifier = Modifier.padding(horizontal = 20.dp))
+                LazyRow(contentPadding = PaddingValues(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(recent, key = { "recent-\${it.id}" }) { item -> PosterTile(item) { chooseTitle(item) } }
+                }
             }
         } else {
-            items(recent, key = { "recent-${it.id}" }) { item ->
-                MediaResultCard(item) {
-                    selected = item
-                    query = item.title
-                    activeTool = "search"
-                    releases = emptyList()
-                    status = "Selected ${item.title}."
+            item { Text(catalogError.ifBlank { "Recent titles are unavailable." }, color = Muted, modifier = Modifier.padding(horizontal = 18.dp)) }
+        }
+        if (catalogError.isNotBlank()) item { Text(catalogError, color = Muted, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 18.dp)) }
+    }
+}
+
+@Composable
+private fun FeaturedHero(item: MediaSearchResult, onSelect: (MediaSearchResult) -> Unit) {
+    Card(
+        onClick = { onSelect(item) },
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+        colors = CardDefaults.cardColors(containerColor = Panel2),
+        shape = RoundedCornerShape(22.dp)
+    ) {
+        Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            AsyncImage(
+                model = item.posterUrl,
+                contentDescription = item.title,
+                modifier = Modifier.size(126.dp, 184.dp),
+                contentScale = ContentScale.Crop
+            )
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("EDITOR'S PICK", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+                Text(item.title, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text("\${item.year.ifBlank { "Featured" }} · \${item.type.uppercase()}", color = Muted, fontSize = 11.sp)
+                if (item.overview.isNotBlank()) Text(item.overview.take(150), color = Muted, fontSize = 11.sp)
+                Button(onClick = { onSelect(item) }, colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Bg)) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(5.dp))
+                    Text("Find releases")
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PosterTile(item: MediaSearchResult, onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.size(width = 132.dp, height = 238.dp),
+        colors = CardDefaults.cardColors(containerColor = Panel),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            AsyncImage(
+                model = item.posterUrl,
+                contentDescription = item.title,
+                modifier = Modifier.fillMaxWidth().height(174.dp),
+                contentScale = ContentScale.Crop
+            )
+            Column(Modifier.padding(horizontal = 9.dp, vertical = 3.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(item.title, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+                Text("\${item.year.ifBlank { item.type.uppercase() }}", color = Teal, fontSize = 10.sp)
             }
         }
     }
@@ -336,19 +460,29 @@ private fun BoxLoading() {
     }
 }
 
-private fun fetchRecentTitles(type: String): List<MediaSearchResult> {
-    val endpoint = "https://v3-cinemeta.strem.io/catalog/$type/lastVideos.json"
+private fun fetchCatalogTitles(
+    type: String,
+    catalogId: String,
+    extraName: String? = null,
+    extraValue: String? = null
+): List<MediaSearchResult> {
+    val nativeType = if (type == "series") "series" else "movie"
+    val extraPath = if (extraName != null && extraValue != null) {
+        "/$extraName=\${URLEncoder.encode(extraValue, "UTF-8").replace("+", "%20")}"
+    } else ""
+    val endpoint = "https://v3-cinemeta.strem.io/catalog/$nativeType/$catalogId$extraPath.json"
     val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
         requestMethod = "GET"
         connectTimeout = 12000
         readTimeout = 15000
         setRequestProperty("Accept", "application/json")
-        setRequestProperty("User-Agent", "DebridMediaCenter/0.6")
+        setRequestProperty("User-Agent", "DebridMediaCenter/0.7")
     }
     try {
         val code = connection.responseCode
-        val body = (if (code in 200..299) connection.inputStream else connection.errorStream)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-        if (code !in 200..299) throw IllegalStateException("Recent-title service returned HTTP $code.")
+        val body = (if (code in 200..299) connection.inputStream else connection.errorStream)
+            ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        if (code !in 200..299) throw IllegalStateException("Discovery service returned HTTP $code.")
         val metas = JSONObject(body).optJSONArray("metas") ?: return emptyList()
         val output = mutableListOf<MediaSearchResult>()
         for (i in 0 until metas.length()) {
@@ -359,10 +493,12 @@ private fun fetchRecentTitles(type: String): List<MediaSearchResult> {
             val year = row.optString("releaseInfo").ifBlank { row.optString("year") }
             val poster = row.optString("poster").takeIf { it.startsWith("http") }.orEmpty()
             val overview = row.optString("description")
-            output.add(MediaSearchResult(id, if (type == "movie") "movie" else "tv", title, year, overview, poster))
+            output.add(MediaSearchResult(id, if (nativeType == "movie") "movie" else "tv", title, year, overview, poster))
         }
-        return output.distinctBy { it.id }.take(24)
-    } finally { connection.disconnect() }
+        return output.distinctBy { it.id }.take(40)
+    } finally {
+        connection.disconnect()
+    }
 }
 
 @Composable
