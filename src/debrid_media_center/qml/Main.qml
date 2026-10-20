@@ -4,102 +4,74 @@ import QtQuick.Layouts
 import QtMultimedia
 
 ApplicationWindow {
-    id: window
+    id: win
     width: 1440
     height: 900
-    minimumWidth: 1050
-    minimumHeight: 680
+    minimumWidth: 1100
+    minimumHeight: 700
     visible: true
     title: "Debrid Media Center"
     color: "#080e14"
 
-    property color surface: "#0e171f"
-    property color surfaceRaised: "#111d27"
-    property color borderColor: "#20313b"
-    property color accent: "#54d6c8"
-    property color textPrimary: "#e5f2f4"
-    property color textMuted: "#8ba0aa"
-    property string currentPage: "Overview"
-    property string statusText: "Ready"
-    property var titleResults: []
-    property var releaseResults: []
-    property var libraryItems: []
-    property var favoriteItems: []
-    property var selectedTitle: null
-    property string playerSource: ""
+    property color bg: "#080e14"
+    property color panel: "#0e171f"
+    property color raised: "#111d27"
+    property color border: "#20313b"
+    property color teal: "#54d6c8"
+    property color text: "#e5f2f4"
+    property color muted: "#8ba0aa"
+    property string page: "Overview"
+    property string status: "Ready"
+    property var titles: []
+    property var releases: []
+    property var library: []
+    property var favorites: []
+    property var selected: null
+    property string playerUrl: ""
     property string playerTitle: ""
-    property string rdStatus: "Checking key status…"
-    property string tbStatus: "Checking key status…"
-    property string dmmStatus: "Checking key status…"
+    property string logs: ""
+    property var systemInfo: ({})
+    property var systemConfig: ({})
 
-    function pageIndex(name) {
-        if (name === "Discover") return 1
-        if (name === "Movies") return 2
-        if (name === "TV Shows") return 3
-        if (name === "Favorites") return 4
-        if (name === "Real-Debrid") return 5
-        if (name === "TorBox") return 6
-        if (name === "Transfers") return 7
-        if (name === "Zurg & Mounts") return 8
-        if (name === "Health & Logs") return 9
-        if (name === "Settings") return 10
-        if (name === "Player") return 11
-        return 0
+    function magnet(hash) { return "magnet:?xt=urn:btih:" + hash }
+    function pageIndex(p) {
+        var pages = ["Overview","Discover","Movies","TV Shows","Favorites","Real-Debrid","TorBox","Transfers","Zurg & Mounts","Health & Logs","Settings","Player"]
+        return Math.max(0, pages.indexOf(p))
     }
-    function filteredTitles(kind) {
-        return titleResults.filter(function(item) {
-            return kind === "movie" ? item.type === "movie" : item.type === "show"
-        })
-    }
-    function titleLabel(item) {
-        return item.title + (item.year ? " (" + item.year + ")" : "")
-    }
+    function filtered(kind) { return win.titles.filter(function(x) { return x.type === kind }) }
+    function openTitle(item) { win.selected = item; win.releases = []; win.page = "Discover" }
 
     Connections {
         target: backend
-        function onStatusChanged(message) { window.statusText = message }
-        function onTitlesReady(results) {
-            window.titleResults = results
-            window.selectedTitle = null
-            window.releaseResults = []
-            window.statusText = "Found " + results.length + " title(s)."
-        }
-        function onReleasesReady(results) {
-            window.releaseResults = results
-            window.statusText = "Found " + results.length + " release(s)."
-        }
-        function onLibraryReady(items) {
-            window.libraryItems = items
-            window.statusText = "Loaded " + items.length + " library item(s)."
-        }
-        function onConnectionChanged(provider, message) {
-            if (provider === "real_debrid") window.rdStatus = message
-            else if (provider === "torbox") window.tbStatus = message
-            else if (provider === "dmm") window.dmmStatus = message
-            window.statusText = message
-        }
-        function onPlaybackReady(title, url) {
-            window.playerTitle = title
-            window.playerSource = url
-            window.currentPage = "Player"
-        }
-        function onFavoritesChanged(items) { window.favoriteItems = items }
+        function onStatusChanged(m) { win.status = m }
+        function onTitlesReady(r) { win.titles = r; win.selected = null; win.releases = []; win.status = "Found " + r.length + " title(s)." }
+        function onReleasesReady(r) { win.releases = r; win.status = "Found " + r.length + " release(s)." }
+        function onLibraryReady(r) { win.library = r; win.status = "Loaded " + r.length + " item(s)." }
+        function onFavoritesChanged(r) { win.favorites = r }
+        function onPlaybackReady(t, u) { win.playerTitle = t; win.playerUrl = u; win.page = "Player" }
+        function onConnectionChanged(provider, m) { win.status = m }
+    }
+    Connections {
+        target: systemBackend
+        function onStatusChanged(m) { win.status = m }
+        function onInfoReady(i) { win.systemInfo = i }
+        function onLogsReady(t) { win.logs = t }
     }
 
     MediaPlayer {
-        id: mediaPlayer
-        source: window.playerSource
+        id: player
+        source: win.playerUrl
         audioOutput: AudioOutput { }
-        videoOutput: playerVideo
-        onSourceChanged: {
-            if (source.toString().length > 0) play()
-        }
-        onErrorOccurred: function(error, errorString) {
-            window.statusText = "Player: " + errorString
-        }
-        onPlaybackStateChanged: {
-            if (playbackState === MediaPlayer.PlayingState) window.statusText = "Playing " + window.playerTitle
-        }
+        videoOutput: video
+        onSourceChanged: if (source.toString() !== "") play()
+        onErrorOccurred: function(e, s) { win.status = "Player: " + s }
+        onPlaybackStateChanged: if (playbackState === MediaPlayer.PlayingState) win.status = "Playing " + win.playerTitle
+    }
+
+    Component.onCompleted: {
+        win.favorites = backend.favorites()
+        win.systemConfig = systemBackend.config()
+        systemBackend.refresh()
     }
 
     RowLayout {
@@ -107,592 +79,127 @@ ApplicationWindow {
         spacing: 0
 
         Rectangle {
-            Layout.preferredWidth: 230
+            Layout.preferredWidth: 245
             Layout.fillHeight: true
             color: "#0b1219"
-            border.color: window.borderColor
+            border.color: win.border
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 18
-                spacing: 8
-
+                anchors.margins: 16
+                spacing: 6
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 10
-                    Rectangle {
-                        width: 40; height: 40; radius: 12
-                        color: "#153b3d"
-                        Text { anchors.centerIn: parent; text: "D"; color: window.accent; font.pixelSize: 24; font.bold: true }
-                    }
-                    ColumnLayout {
-                        spacing: 0
-                        Text { text: "DEBRID"; color: window.textPrimary; font.bold: true; font.pixelSize: 15 }
-                        Text { text: "MEDIA CENTER"; color: window.accent; font.pixelSize: 10; font.letterSpacing: 1.4 }
-                    }
+                    Layout.topMargin: 4
+                    Rectangle { width: 42; height: 42; radius: 12; color: "#153b3d"; Text { anchors.centerIn: parent; text: "D"; color: win.teal; font.pixelSize: 25; font.bold: true } }
+                    ColumnLayout { spacing: 0; Text { text: "DEBRID"; color: win.text; font.bold: true; font.pixelSize: 15 }; Text { text: "MEDIA CENTER"; color: win.teal; font.pixelSize: 10; font.letterSpacing: 1.5 } }
                 }
-                Rectangle { Layout.fillWidth: true; height: 1; color: window.borderColor; Layout.topMargin: 12; Layout.bottomMargin: 8 }
-
-                Repeater {
+                Rectangle { Layout.fillWidth: true; height: 1; color: win.border; Layout.topMargin: 10; Layout.bottomMargin: 8 }
+                ListView {
+                    id: nav
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    spacing: 3
                     model: [
-                        { section: "WORKSPACE" },
-                        { label: "Overview", glyph: "⌂" },
-                        { label: "Discover", glyph: "⌕" },
-                        { label: "Movies", glyph: "▣" },
-                        { label: "TV Shows", glyph: "▤" },
-                        { label: "Favorites", glyph: "☆" },
-                        { section: "PROVIDERS" },
-                        { label: "Real-Debrid", glyph: "●" },
-                        { label: "TorBox", glyph: "●" },
-                        { label: "Transfers", glyph: "⇅" },
-                        { section: "SYSTEM" },
-                        { label: "Zurg & Mounts", glyph: "▦" },
-                        { label: "Health & Logs", glyph: "♥" },
-                        { label: "Settings", glyph: "⚙" }
+                        {s:"WORKSPACE"},{n:"Overview",g:"⌂"},{n:"Discover",g:"⌕"},{n:"Movies",g:"▣"},{n:"TV Shows",g:"▤"},{n:"Favorites",g:"☆"},
+                        {s:"PROVIDERS"},{n:"Real-Debrid",g:"●"},{n:"TorBox",g:"●"},{n:"Transfers",g:"⇅"},
+                        {s:"SYSTEM"},{n:"Zurg & Mounts",g:"▦"},{n:"Health & Logs",g:"♥"},{n:"Settings",g:"⚙"}
                     ]
                     delegate: Item {
-                        required property var modelData
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: modelData.section ? 26 : 39
-                        Rectangle {
-                            anchors.fill: parent
-                            visible: !modelData.section && window.currentPage === modelData.label
-                            color: "#153336"
-                            radius: 9
-                        }
-                        Text {
-                            anchors.left: parent.left
-                            anchors.leftMargin: 10
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: modelData.section ? modelData.section : modelData.glyph + "   " + modelData.label
-                            color: modelData.section ? "#718791" : (window.currentPage === modelData.label ? window.accent : window.textPrimary)
-                            font.pixelSize: modelData.section ? 10 : 13
-                            font.bold: modelData.section || window.currentPage === modelData.label
-                            font.letterSpacing: modelData.section ? 1.5 : 0
-                        }
-                        MouseArea {
-                            anchors.fill: parent
-                            enabled: !modelData.section
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                window.currentPage = modelData.label
-                                if (modelData.label === "Favorites") window.favoriteItems = backend.favorites()
-                            }
-                        }
+                        width: nav.width
+                        height: modelData.s ? 28 : 40
+                        Text { anchors.left: parent.left; anchors.leftMargin: 10; anchors.verticalCenter: parent.verticalCenter; text: modelData.s ? modelData.s : modelData.g + "   " + modelData.n; color: modelData.s ? "#718791" : (win.page === modelData.n ? win.teal : win.text); font.pixelSize: modelData.s ? 10 : 13; font.bold: modelData.s || win.page === modelData.n; font.letterSpacing: modelData.s ? 1.4 : 0 }
+                        Rectangle { anchors.fill: parent; radius: 9; color: "#153336"; visible: !modelData.s && win.page === modelData.n; z: -1 }
+                        MouseArea { anchors.fill: parent; enabled: !modelData.s; cursorShape: Qt.PointingHandCursor; onClicked: { win.page = modelData.n; if (modelData.n === "Favorites") win.favorites = backend.favorites(); if (modelData.n === "Zurg & Mounts") { win.systemConfig = systemBackend.config(); systemBackend.refresh() } if (modelData.n === "Health & Logs") systemBackend.loadLogs() } }
                     }
                 }
-                Item { Layout.fillHeight: true }
-                Text { text: "NATIVE DESKTOP  •  v0.2.0"; color: "#607781"; font.pixelSize: 10 }
+                Text { text: "NATIVE LINUX  •  v0.3.0"; color: "#607781"; font.pixelSize: 10 }
             }
         }
 
         ColumnLayout {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            spacing: 0
-
+            Layout.fillWidth: true; Layout.fillHeight: true; spacing: 0
             RowLayout {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 74
-                Layout.leftMargin: 28
-                Layout.rightMargin: 28
-                Text { text: window.currentPage; color: window.textPrimary; font.pixelSize: 24; font.bold: true }
+                Layout.fillWidth: true; Layout.preferredHeight: 76; Layout.leftMargin: 28; Layout.rightMargin: 28
+                Text { text: win.page; color: win.text; font.pixelSize: 25; font.bold: true }
                 Item { Layout.fillWidth: true }
                 TextField {
-                    id: globalSearch
+                    id: search
+                    Layout.preferredWidth: 330
                     placeholderText: "Search movies and shows…"
-                    Layout.preferredWidth: 300
-                    color: window.textPrimary
-                    placeholderTextColor: window.textMuted
-                    onAccepted: { backend.searchTitles(text); window.currentPage = "Discover" }
-                    background: Rectangle { color: window.surface; radius: 18; border.color: window.borderColor }
+                    color: win.text; placeholderTextColor: win.muted
+                    onAccepted: { backend.searchTitles(text); win.page = "Discover" }
+                    background: Rectangle { color: win.panel; radius: 18; border.color: win.border }
                 }
                 Button {
                     text: "⌕  Search"
-                    onClicked: { backend.searchTitles(globalSearch.text); window.currentPage = "Discover" }
+                    onClicked: { backend.searchTitles(search.text); win.page = "Discover" }
                     background: Rectangle { color: "#153b3d"; radius: 18; border.color: "#245c5b" }
-                    contentItem: Text { text: parent.text; color: window.accent; font.bold: true; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                    contentItem: Text { text: parent.text; color: win.teal; font.bold: true; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                 }
             }
 
             StackLayout {
-                id: pages
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                currentIndex: window.pageIndex(window.currentPage)
+                Layout.fillWidth: true; Layout.fillHeight: true; currentIndex: win.pageIndex(win.page)
 
-                // Overview
                 Flickable {
-                    clip: true
-                    contentWidth: availableWidth
-                    contentHeight: overviewColumn.implicitHeight + 48
-                    ColumnLayout {
-                        id: overviewColumn
-                        width: parent.width
-                        spacing: 18
-                        Rectangle {
-                            Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28
-                            Layout.preferredHeight: 145; radius: 16; color: "#102329"; border.color: "#21464b"
-                            RowLayout {
-                                anchors.fill: parent; anchors.margins: 24
-                                ColumnLayout {
-                                    spacing: 7
-                                    Text { text: "YOUR MEDIA, ONE PLACE"; color: window.accent; font.pixelSize: 10; font.bold: true; font.letterSpacing: 1.7 }
-                                    Text { text: "Welcome to your media center"; color: window.textPrimary; font.pixelSize: 24; font.bold: true }
-                                    Text { text: "Search titles, add releases, and play files from connected services."; color: window.textMuted; font.pixelSize: 13 }
-                                }
-                                Item { Layout.fillWidth: true }
-                                Button { text: "Discover content"; onClicked: window.currentPage = "Discover" }
-                            }
+                    clip: true; contentWidth: width; contentHeight: overview.implicitHeight + 50
+                    ColumnLayout { id: overview; width: parent.width; spacing: 16
+                        Rectangle { Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28; Layout.preferredHeight: 150; radius: 16; color: "#102329"; border.color: "#21464b"; RowLayout { anchors.fill: parent; anchors.margins: 24; ColumnLayout { spacing: 7; Text { text: "YOUR MEDIA, ONE PLACE"; color: win.teal; font.pixelSize: 10; font.bold: true; font.letterSpacing: 1.6 }; Text { text: "Welcome to your media center"; color: win.text; font.pixelSize: 24; font.bold: true }; Text { text: "Search, add, manage and play your authorized media from one native app."; color: win.muted; font.pixelSize: 13 } }; Item { Layout.fillWidth: true }; Button { text: "Discover content"; onClicked: win.page = "Discover" } } }
+                        GridLayout { Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28; columns: 3; columnSpacing: 14; rowSpacing: 14
+                            Repeater { model: [{a:"REAL-DEBRID",v:backend.keyStatus("real_debrid")},{a:"TORBOX",v:backend.keyStatus("torbox")},{a:"LIBRARY",v:win.library.length + " items"}]; delegate: Rectangle { required property var modelData; Layout.fillWidth: true; Layout.preferredHeight: 115; radius: 13; color: win.panel; border.color: win.border; ColumnLayout { anchors.fill: parent; anchors.margins: 16; Text { text: modelData.a; color: win.muted; font.pixelSize: 10; font.bold: true; font.letterSpacing: 1.2 }; Text { text: modelData.v; color: win.text; font.pixelSize: 15; font.bold: true; elide: Text.ElideRight; Layout.fillWidth: true }; Text { text: modelData.a === "LIBRARY" ? "Provider items loaded this session" : "Credential status"; color: win.muted; font.pixelSize: 11 } } } }
                         }
-                        GridLayout {
-                            Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28
-                            columns: 3; columnSpacing: 14; rowSpacing: 14
-                            Repeater {
-                                model: [
-                                    { title: "REAL-DEBRID", value: window.rdStatus, detail: "Provider connection", glyph: "◉" },
-                                    { title: "TORBOX", value: window.tbStatus, detail: "Provider connection", glyph: "◉" },
-                                    { title: "LIBRARY", value: window.libraryItems.length + " items", detail: "Last loaded locally", glyph: "▤" }
-                                ]
-                                delegate: Rectangle {
-                                    required property var modelData
-                                    Layout.fillWidth: true; Layout.preferredHeight: 125
-                                    radius: 13; color: window.surface; border.color: window.borderColor
-                                    ColumnLayout {
-                                        anchors.fill: parent; anchors.margins: 17; spacing: 8
-                                        RowLayout {
-                                            Layout.fillWidth: true
-                                            Text { text: modelData.title; color: window.textMuted; font.pixelSize: 10; font.bold: true; font.letterSpacing: 1.2 }
-                                            Item { Layout.fillWidth: true }
-                                            Text { text: modelData.glyph; color: window.accent; font.pixelSize: 16 }
-                                        }
-                                        Text { text: modelData.value; color: window.textPrimary; font.pixelSize: 15; font.bold: true; elide: Text.ElideRight; Layout.fillWidth: true }
-                                        Text { text: modelData.detail; color: window.textMuted; font.pixelSize: 12 }
-                                    }
-                                }
-                            }
+                        RowLayout { Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28; spacing: 14
+                            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 190; radius: 14; color: win.panel; border.color: win.border; ColumnLayout { anchors.fill: parent; anchors.margins: 18; Text { text: "QUICK START"; color: win.text; font.pixelSize: 16; font.bold: true }; Text { text: "1. Add your provider keys in Settings.\n2. Search a movie or show.\n3. Select a release or paste a magnet.\n4. Open your provider library and play completed files."; color: win.muted; font.pixelSize: 13; lineHeight: 1.2; Layout.fillWidth: true; wrapMode: Text.WordWrap }; Item { Layout.fillHeight: true }; Button { text: "Open Settings"; onClicked: win.page = "Settings" } } }
+                            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 190; radius: 14; color: win.panel; border.color: win.border; ColumnLayout { anchors.fill: parent; anchors.margins: 18; Text { text: "SYSTEM"; color: win.text; font.pixelSize: 16; font.bold: true }; Text { text: win.status; color: win.muted; wrapMode: Text.WordWrap; Layout.fillWidth: true }; Item { Layout.fillHeight: true }; Button { text: "Zurg & Mounts"; onClicked: win.page = "Zurg & Mounts" } } }
                         }
-                        RowLayout {
-                            Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28; spacing: 16
-                            Rectangle {
-                                Layout.fillWidth: true; Layout.preferredHeight: 230; radius: 14; color: window.surface; border.color: window.borderColor
-                                ColumnLayout {
-                                    anchors.fill: parent; anchors.margins: 20; spacing: 10
-                                    Text { text: "DISCOVER CONTENT"; color: window.textPrimary; font.pixelSize: 16; font.bold: true }
-                                    Text { text: "Search the catalog, inspect release options when DMM release access is configured, and add magnets to your account."; color: window.textMuted; wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 13 }
-                                    Item { Layout.fillHeight: true }
-                                    Button { text: "Open Discover"; onClicked: window.currentPage = "Discover" }
-                                }
-                            }
-                            Rectangle {
-                                Layout.fillWidth: true; Layout.preferredHeight: 230; radius: 14; color: window.surface; border.color: window.borderColor
-                                ColumnLayout {
-                                    anchors.fill: parent; anchors.margins: 20; spacing: 12
-                                    Text { text: "SYSTEM STATUS"; color: window.textPrimary; font.pixelSize: 16; font.bold: true }
-                                    Text { text: window.statusText; color: window.textMuted; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                                    Item { Layout.fillHeight: true }
-                                    Button { text: "Manage connections"; onClicked: window.currentPage = "Settings" }
-                                }
-                            }
-                        }
-                        Item { Layout.preferredHeight: 12 }
                     }
                 }
 
-                // Discover
                 Flickable {
-                    clip: true; contentWidth: availableWidth; contentHeight: discoverColumn.implicitHeight + 40
-                    ColumnLayout {
-                        id: discoverColumn
-                        width: parent.width; spacing: 14
-                        Rectangle {
-                            Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28
-                            radius: 14; color: window.surface; border.color: window.borderColor
-                            ColumnLayout {
-                                anchors.fill: parent; anchors.margins: 18; spacing: 10
-                                Text { text: "TITLE SEARCH"; color: window.accent; font.pixelSize: 10; font.bold: true; font.letterSpacing: 1.5 }
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    TextField {
-                                        id: titleQuery
-                                        Layout.fillWidth: true
-                                        placeholderText: "Movie or TV show title…"
-                                        color: window.textPrimary; placeholderTextColor: window.textMuted
-                                        onAccepted: backend.searchTitles(text)
-                                        background: Rectangle { color: "#09121a"; radius: 9; border.color: window.borderColor }
-                                    }
-                                    Button { text: "Search titles"; onClicked: backend.searchTitles(titleQuery.text) }
-                                }
-                                Text { text: window.statusText; color: window.textMuted; font.pixelSize: 12; wrapMode: Text.WordWrap }
-                                Repeater {
-                                    model: window.titleResults
-                                    delegate: Rectangle {
-                                        required property var modelData
-                                        Layout.fillWidth: true; Layout.preferredHeight: 150
-                                        radius: 12; color: window.surfaceRaised
-                                        border.color: window.selectedTitle && window.selectedTitle.id === modelData.id ? window.accent : window.borderColor
-                                        RowLayout {
-                                            anchors.fill: parent; anchors.margins: 12; spacing: 14
-                                            Rectangle {
-                                                Layout.preferredWidth: 82; Layout.preferredHeight: 124
-                                                radius: 7; color: "#09121a"; clip: true
-                                                Image {
-                                                    id: posterImage
-                                                    anchors.fill: parent
-                                                    source: modelData.poster || ""
-                                                    asynchronous: true
-                                                    fillMode: Image.PreserveAspectCrop
-                                                    visible: status === Image.Ready
-                                                }
-                                                Text { anchors.centerIn: parent; text: "DMC"; color: window.accent; font.bold: true; visible: posterImage.status !== Image.Ready }
-                                            }
-                                            ColumnLayout {
-                                                Layout.fillWidth: true; spacing: 5
-                                                RowLayout {
-                                                    Layout.fillWidth: true
-                                                    Text { text: modelData.title; color: window.textPrimary; font.pixelSize: 15; font.bold: true; Layout.fillWidth: true; elide: Text.ElideRight }
-                                                    Text { text: modelData.type.toUpperCase(); color: window.accent; font.pixelSize: 10; font.bold: true }
-                                                }
-                                                Text { text: modelData.year ? modelData.year : "Year unavailable"; color: window.textMuted; font.pixelSize: 12 }
-                                                Text { text: modelData.overview || "No description available."; color: window.textMuted; font.pixelSize: 12; wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight; Layout.fillWidth: true }
-                                                RowLayout {
-                                                    Layout.fillWidth: true
-                                                    Button {
-                                                        text: window.selectedTitle && window.selectedTitle.id === modelData.id ? "Selected" : "Select title"
-                                                        onClicked: { window.selectedTitle = modelData; window.releaseResults = [] }
-                                                        background: Rectangle { color: "#153b3d"; radius: 8 }
-                                                        contentItem: Text { text: parent.text; color: window.accent; font.bold: true; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; leftPadding: 8; rightPadding: 8 }
-                                                    }
-                                                    Button {
-                                                        text: "☆ Favorite"
-                                                        onClicked: backend.toggleFavorite(modelData.title, modelData.imdb)
-                                                        background: Rectangle { color: "#1b2631"; radius: 8 }
-                                                        contentItem: Text { text: parent.text; color: window.textPrimary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; leftPadding: 8; rightPadding: 8 }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Rectangle {
-                            Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28
-                            radius: 14; color: window.surface; border.color: window.borderColor
-                            ColumnLayout {
-                                anchors.fill: parent; anchors.margins: 18; spacing: 10
-                                Text { text: "RELEASE SEARCH"; color: window.accent; font.pixelSize: 10; font.bold: true; font.letterSpacing: 1.5 }
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    ComboBox { id: qualityChoice; model: ["best", "4k", "1080p", "720p"]; currentIndex: 0 }
-                                    Button {
-                                        text: "Find releases"
-                                        enabled: window.selectedTitle !== null
-                                        onClicked: backend.searchReleases(window.selectedTitle.imdb, window.selectedTitle.type, qualityChoice.currentText)
-                                    }
-                                }
-                                Text { text: "Requires an active DMM sponsor API key saved in Settings. Without it, you can still add a magnet manually below."; color: window.textMuted; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                                Repeater {
-                                    model: window.releaseResults
-                                    delegate: Rectangle {
-                                        required property var modelData
-                                        Layout.fillWidth: true; Layout.preferredHeight: 82
-                                        radius: 10; color: window.surfaceRaised; border.color: window.borderColor
-                                        RowLayout {
-                                            anchors.fill: parent; anchors.margins: 12; spacing: 12
-                                            ColumnLayout {
-                                                Layout.fillWidth: true; spacing: 4
-                                                Text { text: modelData.title; color: window.textPrimary; font.bold: true; font.pixelSize: 13; Layout.fillWidth: true; elide: Text.ElideRight }
-                                                Text { text: (modelData.size > 0 ? (modelData.size / 1024).toFixed(2) + " GB" : "Size unknown") + "  ·  " + modelData.hash; color: window.textMuted; font.pixelSize: 10; Layout.fillWidth: true; elide: Text.ElideMiddle }
-                                            }
-                                            Button { text: "Add RD"; onClicked: backend.addMagnet("real_debrid", "magnet:?xt=urn:btih:" + modelData.hash) }
-                                            Button { text: "Add TorBox"; onClicked: backend.addMagnet("torbox", "magnet:?xt=urn:btih:" + modelData.hash); background: Rectangle { color: "#1b2631"; radius: 8 } }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Rectangle {
-                            Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28
-                            radius: 14; color: window.surface; border.color: window.borderColor
-                            ColumnLayout {
-                                anchors.fill: parent; anchors.margins: 18; spacing: 10
-                                Text { text: "MANUAL MAGNET"; color: window.accent; font.pixelSize: 10; font.bold: true; font.letterSpacing: 1.5 }
-                                TextArea {
-                                    id: magnetInput
-                                    Layout.fillWidth: true; Layout.preferredHeight: 75
-                                    placeholderText: "magnet:?xt=urn:btih:…"
-                                    color: window.textPrimary; placeholderTextColor: window.textMuted
-                                    background: Rectangle { color: "#09121a"; radius: 9; border.color: window.borderColor }
-                                }
-                                RowLayout {
-                                    ComboBox { id: manualProvider; model: ["Real-Debrid", "TorBox"]; currentIndex: 0 }
-                                    Button {
-                                        text: "Add magnet"
-                                        onClicked: backend.addMagnet(manualProvider.currentIndex === 0 ? "real_debrid" : "torbox", magnetInput.text)
-                                    }
-                                }
-                            }
-                        }
+                    clip: true; contentWidth: width; contentHeight: discover.implicitHeight + 45
+                    ColumnLayout { id: discover; width: parent.width; spacing: 12
+                        Rectangle { Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28; radius: 14; color: win.panel; border.color: win.border; ColumnLayout { anchors.fill: parent; anchors.margins: 18; spacing: 10
+                            Text { text: "TITLE SEARCH"; color: win.teal; font.pixelSize: 10; font.bold: true; font.letterSpacing: 1.5 }
+                            RowLayout { Layout.fillWidth: true; TextField { id: titleSearch; Layout.fillWidth: true; placeholderText: "Movie or TV show title…"; color: win.text; placeholderTextColor: win.muted; onAccepted: backend.searchTitles(text); background: Rectangle { color: "#09121a"; radius: 9; border.color: win.border } }; Button { text: "Search"; onClicked: backend.searchTitles(titleSearch.text) } }
+                            RowLayout { Layout.fillWidth: true; Text { text: win.status; color: win.muted; Layout.fillWidth: true }; Button { text: "Clear"; onClicked: { win.titles=[]; win.selected=null; win.releases=[] } } }
+                        } }
+                        Repeater { model: win.titles; delegate: Rectangle { required property var modelData; Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28; Layout.preferredHeight: 150; radius: 12; color: win.raised; border.color: win.selected && win.selected.id === modelData.id ? win.teal : win.border; RowLayout { anchors.fill: parent; anchors.margins: 12; spacing: 14
+                            Rectangle { Layout.preferredWidth: 82; Layout.preferredHeight: 124; radius: 7; color: "#09121a"; clip: true; Image { id: poster; anchors.fill: parent; source: modelData.poster || ""; asynchronous: true; fillMode: Image.PreserveAspectCrop; visible: status === Image.Ready }; Text { anchors.centerIn: parent; text: modelData.type === "movie" ? "MOVIE" : "TV"; color: win.teal; font.bold: true; visible: poster.status !== Image.Ready } }
+                            ColumnLayout { Layout.fillWidth: true; spacing: 5; RowLayout { Layout.fillWidth: true; Text { text: modelData.title; color: win.text; font.pixelSize: 16; font.bold: true; Layout.fillWidth: true; elide: Text.ElideRight }; Text { text: modelData.type.toUpperCase(); color: win.teal; font.pixelSize: 10; font.bold: true } }; Text { text: modelData.year || "Year unavailable"; color: win.muted; font.pixelSize: 12 }; Text { text: modelData.overview || "No description available."; color: win.muted; font.pixelSize: 12; maximumLineCount: 2; elide: Text.ElideRight; wrapMode: Text.WordWrap; Layout.fillWidth: true }; RowLayout { Layout.fillWidth: true; Button { text: "Select"; onClicked: win.openTitle(modelData) }; Button { text: backend.favorites().some(function(x){return x.imdb === modelData.imdb}) ? "★" : "☆"; onClicked: backend.toggleFavorite(modelData.title, modelData.imdb) }; Item { Layout.fillWidth: true } } } } } }
+                        Rectangle { Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28; visible: win.selected !== null; radius: 14; color: "#102329"; border.color: "#21464b"; ColumnLayout { anchors.fill: parent; anchors.margins: 18; spacing: 10; Text { text: win.selected ? "RELEASES FOR " + win.selected.title.toUpperCase() : ""; color: win.teal; font.pixelSize: 11; font.bold: true; font.letterSpacing: 1.3 }; RowLayout { Layout.fillWidth: true; ComboBox { id: quality; model: ["best","2160p","1080p","720p"]; currentIndex: 0; Layout.preferredWidth: 130 }; Button { text: "Find releases"; onClicked: if (win.selected) backend.searchReleases(win.selected.imdb, win.selected.type, quality.currentText) }; Text { text: win.releases.length + " release(s)"; color: win.muted } }; Repeater { model: win.releases; delegate: Rectangle { required property var modelData; Layout.fillWidth: true; Layout.preferredHeight: 58; radius: 9; color: win.panel; border.color: win.border; RowLayout { anchors.fill: parent; anchors.margins: 10; Text { text: modelData.title; color: win.text; Layout.fillWidth: true; elide: Text.ElideRight }; Text { text: (modelData.size / 1073741824).toFixed(2) + " GB"; color: win.muted; font.pixelSize: 11 }; Button { text: "Add RD"; onClicked: backend.addMagnet("real_debrid", win.magnet(modelData.hash)) }; Button { text: "Add TorBox"; onClicked: backend.addMagnet("torbox", win.magnet(modelData.hash)) } } } } } }
+                        Rectangle { Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28; radius: 14; color: win.panel; border.color: win.border; ColumnLayout { anchors.fill: parent; anchors.margins: 18; Text { text: "MANUAL MAGNET"; color: win.text; font.pixelSize: 15; font.bold: true }; TextField { id: magnet; Layout.fillWidth: true; placeholderText: "magnet:?xt=urn:btih:…"; color: win.text; placeholderTextColor: win.muted; background: Rectangle { color: "#09121a"; radius: 9; border.color: win.border } }; RowLayout { Button { text: "Add to Real-Debrid"; onClicked: backend.addMagnet("real_debrid", magnet.text) }; Button { text: "Add to TorBox"; onClicked: backend.addMagnet("torbox", magnet.text) } } } }
                     }
                 }
 
                 // Movies
-                Flickable {
-                    clip: true; contentWidth: availableWidth; contentHeight: moviesColumn.implicitHeight + 40
-                    ColumnLayout {
-                        id: moviesColumn; width: parent.width; spacing: 14
-                        Text { text: "Movies"; color: window.textPrimary; font.pixelSize: 22; font.bold: true; Layout.leftMargin: 28 }
-                        Text { text: "Search titles in Discover to populate your movie collection."; color: window.textMuted; Layout.leftMargin: 28 }
-                        Repeater {
-                            model: window.filteredTitles("movie")
-                            delegate: Rectangle {
-                                required property var modelData
-                                Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28; Layout.preferredHeight: 84
-                                radius: 10; color: window.surface; border.color: window.borderColor
-                                RowLayout {
-                                    anchors.fill: parent; anchors.margins: 14
-                                    Text { text: window.titleLabel(modelData); color: window.textPrimary; font.bold: true; Layout.fillWidth: true }
-                                    Button { text: "Select"; onClicked: { window.selectedTitle = modelData; window.currentPage = "Discover" } }
-                                    Button { text: "☆"; onClicked: backend.toggleFavorite(modelData.title, modelData.imdb) }
-                                }
-                            }
-                        }
-                    }
-                }
+                Flickable { clip: true; contentWidth: width; contentHeight: movies.implicitHeight + 40; ColumnLayout { id: movies; width: parent.width; spacing: 12; Text { text: "Movie results from your last search"; color: win.muted; Layout.leftMargin: 28 }; Repeater { model: win.filtered("movie"); delegate: Rectangle { required property var modelData; Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28; Layout.preferredHeight: 120; radius: 12; color: win.panel; border.color: win.border; RowLayout { anchors.fill: parent; anchors.margins: 12; Text { text: modelData.title + (modelData.year ? " (" + modelData.year + ")" : ""); color: win.text; font.bold: true; Layout.fillWidth: true }; Button { text: "Open"; onClicked: win.openTitle(modelData) } } } } } }
+                Flickable { clip: true; contentWidth: width; contentHeight: shows.implicitHeight + 40; ColumnLayout { id: shows; width: parent.width; spacing: 12; Text { text: "TV results from your last search"; color: win.muted; Layout.leftMargin: 28 }; Repeater { model: win.filtered("show"); delegate: Rectangle { required property var modelData; Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28; Layout.preferredHeight: 120; radius: 12; color: win.panel; border.color: win.border; RowLayout { anchors.fill: parent; anchors.margins: 12; Text { text: modelData.title + (modelData.year ? " (" + modelData.year + ")" : ""); color: win.text; font.bold: true; Layout.fillWidth: true }; Button { text: "Open"; onClicked: win.openTitle(modelData) } } } } } }
 
-                // TV shows
-                Flickable {
-                    clip: true; contentWidth: availableWidth; contentHeight: showsColumn.implicitHeight + 40
-                    ColumnLayout {
-                        id: showsColumn; width: parent.width; spacing: 14
-                        Text { text: "TV Shows"; color: window.textPrimary; font.pixelSize: 22; font.bold: true; Layout.leftMargin: 28 }
-                        Text { text: "Search titles in Discover to populate your show collection."; color: window.textMuted; Layout.leftMargin: 28 }
-                        Repeater {
-                            model: window.filteredTitles("show")
-                            delegate: Rectangle {
-                                required property var modelData
-                                Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28; Layout.preferredHeight: 84
-                                radius: 10; color: window.surface; border.color: window.borderColor
-                                RowLayout {
-                                    anchors.fill: parent; anchors.margins: 14
-                                    Text { text: window.titleLabel(modelData); color: window.textPrimary; font.bold: true; Layout.fillWidth: true }
-                                    Button { text: "Select"; onClicked: { window.selectedTitle = modelData; window.currentPage = "Discover" } }
-                                    Button { text: "☆"; onClicked: backend.toggleFavorite(modelData.title, modelData.imdb) }
-                                }
-                            }
-                        }
-                    }
-                }
+                Flickable { clip: true; contentWidth: width; contentHeight: favs.implicitHeight + 40; ColumnLayout { id: favs; width: parent.width; spacing: 12; Text { text: "Saved favorites"; color: win.muted; Layout.leftMargin: 28 }; Repeater { model: win.favorites; delegate: Rectangle { required property var modelData; Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28; Layout.preferredHeight: 70; radius: 11; color: win.panel; border.color: win.border; RowLayout { anchors.fill: parent; anchors.margins: 14; Text { text: modelData.title; color: win.text; Layout.fillWidth: true; font.bold: true }; Button { text: "Remove"; onClicked: backend.toggleFavorite(modelData.title, modelData.imdb) } } } } } }
 
-                // Favorites
-                Flickable {
-                    clip: true; contentWidth: availableWidth; contentHeight: favoritesColumn.implicitHeight + 40
-                    ColumnLayout {
-                        id: favoritesColumn; width: parent.width; spacing: 12
-                        Text { text: "Favorites"; color: window.textPrimary; font.pixelSize: 22; font.bold: true; Layout.leftMargin: 28 }
-                        Repeater {
-                            model: window.favoriteItems
-                            delegate: Rectangle {
-                                required property var modelData
-                                Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28; Layout.preferredHeight: 62
-                                radius: 10; color: window.surface; border.color: window.borderColor
-                                RowLayout {
-                                    anchors.fill: parent; anchors.margins: 14
-                                    Text { text: modelData.title; color: window.textPrimary; font.bold: true; Layout.fillWidth: true }
-                                    Button { text: "Remove"; onClicked: backend.toggleFavorite(modelData.title, modelData.imdb) }
-                                }
-                            }
-                        }
-                        Text { visible: window.favoriteItems.length === 0; text: "No favorites yet. Use ☆ Favorite on a title in Discover."; color: window.textMuted; Layout.leftMargin: 28 }
-                    }
-                }
+                Flickable { clip: true; contentWidth: width; contentHeight: providerPage.implicitHeight + 40; ColumnLayout { id: providerPage; width: parent.width; spacing: 14; Text { text: "Real-Debrid"; color: win.teal; font.pixelSize: 20; font.bold: true; Layout.leftMargin: 28 }; Text { text: "Use Settings to save or test your key, then refresh the provider library."; color: win.muted; Layout.leftMargin: 28 }; Button { text: "Refresh library"; Layout.leftMargin: 28; onClicked: backend.loadLibrary("real_debrid") } } }
+                Flickable { clip: true; contentWidth: width; contentHeight: providerPage2.implicitHeight + 40; ColumnLayout { id: providerPage2; width: parent.width; spacing: 14; Text { text: "TorBox"; color: win.teal; font.pixelSize: 20; font.bold: true; Layout.leftMargin: 28 }; Text { text: "Use Settings to save or test your key, then refresh the provider library."; color: win.muted; Layout.leftMargin: 28 }; Button { text: "Refresh library"; Layout.leftMargin: 28; onClicked: backend.loadLibrary("torbox") } } }
 
-                // Real-Debrid
-                Item {
-                    ColumnLayout {
-                        anchors.fill: parent; anchors.margins: 28; spacing: 14
-                        Text { text: "Real-Debrid"; color: window.textPrimary; font.pixelSize: 24; font.bold: true }
-                        Text { text: window.rdStatus; color: window.textMuted; font.pixelSize: 13 }
-                        Button { text: "Open Services"; onClicked: window.currentPage = "Settings" }
-                        Button { text: "Load Real-Debrid library"; onClicked: backend.loadLibrary("real_debrid") }
-                        Item { Layout.fillHeight: true }
-                    }
-                }
+                Flickable { clip: true; contentWidth: width; contentHeight: libraryPage.implicitHeight + 50; ColumnLayout { id: libraryPage; width: parent.width; spacing: 12; RowLayout { Layout.leftMargin: 28; Layout.rightMargin: 28; Layout.fillWidth: true; Text { text: "Provider library"; color: win.text; font.pixelSize: 18; font.bold: true }; Item { Layout.fillWidth: true }; Button { text: "Real-Debrid"; onClicked: backend.loadLibrary("real_debrid") }; Button { text: "TorBox"; onClicked: backend.loadLibrary("torbox") } }; Repeater { model: win.library; delegate: Rectangle { required property var modelData; Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28; Layout.preferredHeight: 92; radius: 12; color: win.panel; border.color: win.border; ColumnLayout { anchors.fill: parent; anchors.margins: 13; RowLayout { Layout.fillWidth: true; Text { text: modelData.title; color: win.text; font.bold: true; Layout.fillWidth: true; elide: Text.ElideRight }; Text { text: modelData.provider; color: win.teal; font.pixelSize: 10 } }; RowLayout { Layout.fillWidth: true; Text { text: modelData.status + "  ·  " + modelData.progress + "%"; color: win.muted; Layout.fillWidth: true }; Button { text: "Play"; enabled: modelData.progress >= 100 || modelData.status.toLowerCase() === "downloaded"; onClicked: backend.playItem(modelData.provider, modelData.id, modelData.title) } } } } } } }
 
-                // TorBox
-                Item {
-                    ColumnLayout {
-                        anchors.fill: parent; anchors.margins: 28; spacing: 14
-                        Text { text: "TorBox"; color: window.textPrimary; font.pixelSize: 24; font.bold: true }
-                        Text { text: window.tbStatus; color: window.textMuted; font.pixelSize: 13 }
-                        Button { text: "Open Services"; onClicked: window.currentPage = "Settings" }
-                        Button { text: "Load TorBox library"; onClicked: backend.loadLibrary("torbox") }
-                        Item { Layout.fillHeight: true }
-                    }
-                }
+                Flickable { clip: true; contentWidth: width; contentHeight: zurgPage.implicitHeight + 50; ColumnLayout { id: zurgPage; width: parent.width; spacing: 14
+                    Rectangle { Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28; radius: 14; color: win.panel; border.color: win.border; ColumnLayout { anchors.fill: parent; anchors.margins: 18; Text { text: "ZURG / SYSTEMD"; color: win.teal; font.pixelSize: 16; font.bold: true }; Text { text: "Controls use your user systemd session; no sudo or hidden privilege escalation is performed."; color: win.muted; wrapMode: Text.WordWrap; Layout.fillWidth: true }; RowLayout { Layout.fillWidth: true; TextField { id: zurgName; Layout.fillWidth: true; text: win.systemConfig.zurgService || "zurg"; placeholderText: "zurg.service"; color: win.text; background: Rectangle { color: "#09121a"; radius: 8; border.color: win.border } }; TextField { id: rcloneName; Layout.fillWidth: true; text: win.systemConfig.rcloneService || "rclone"; placeholderText: "rclone.service"; color: win.text; background: Rectangle { color: "#09121a"; radius: 8; border.color: win.border } }; Button { text: "Save"; onClicked: { systemBackend.saveConfig(zurgName.text, rcloneName.text); win.systemConfig = systemBackend.config() } } }; RowLayout { Text { text: "Zurg: " + (win.systemInfo.zurg || systemBackend.serviceStatus(zurgName.text)); color: win.text }; Item { Layout.fillWidth: true }; Button { text: "Start"; onClicked: systemBackend.startService(zurgName.text) }; Button { text: "Restart"; onClicked: systemBackend.restartService(zurgName.text) }; Button { text: "Stop"; onClicked: systemBackend.stopService(zurgName.text) } } } }
+                    Rectangle { Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28; radius: 14; color: win.panel; border.color: win.border; ColumnLayout { anchors.fill: parent; anchors.margins: 18; Text { text: "RCLONE MOUNT"; color: win.text; font.pixelSize: 16; font.bold: true }; RowLayout { Layout.fillWidth: true; TextField { id: remote; Layout.fillWidth: true; text: win.systemConfig.remote || ""; placeholderText: "remote:path"; color: win.text; background: Rectangle { color: "#09121a"; radius: 8; border.color: win.border } }; TextField { id: mountpoint; Layout.fillWidth: true; text: win.systemConfig.mountpoint || ""; placeholderText: "~/zurg"; color: win.text; background: Rectangle { color: "#09121a"; radius: 8; border.color: win.border } }; Button { text: "Save"; onClicked: { systemBackend.saveMountConfig(remote.text, mountpoint.text); win.systemConfig = systemBackend.config() } } }; Text { text: "Mount: " + (win.systemInfo.mount || systemBackend.mountStatus()) + "   ·   rclone: " + (win.systemInfo.rcloneInstalled ? "installed" : "not installed"); color: win.muted }; RowLayout { Button { text: "Mount"; onClicked: systemBackend.startMount() }; Button { text: "Unmount"; onClicked: systemBackend.stopMount() }; Item { Layout.fillWidth: true }; Button { text: "Refresh"; onClicked: systemBackend.refresh() } } } }
+                } }
 
-                // Transfers / Library
-                Flickable {
-                    clip: true; contentWidth: availableWidth; contentHeight: transfersColumn.implicitHeight + 40
-                    ColumnLayout {
-                        id: transfersColumn; width: parent.width; spacing: 12
-                        RowLayout {
-                            Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28
-                            Text { text: "Transfers & Library"; color: window.textPrimary; font.pixelSize: 22; font.bold: true; Layout.fillWidth: true }
-                            ComboBox { id: libraryProvider; model: ["Real-Debrid", "TorBox"] }
-                            Button { text: "Refresh"; onClicked: backend.loadLibrary(libraryProvider.currentIndex === 0 ? "real_debrid" : "torbox") }
-                        }
-                        Repeater {
-                            model: window.libraryItems
-                            delegate: Rectangle {
-                                required property var modelData
-                                Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28; Layout.preferredHeight: 92
-                                radius: 10; color: window.surface; border.color: window.borderColor
-                                RowLayout {
-                                    anchors.fill: parent; anchors.margins: 14; spacing: 12
-                                    ColumnLayout {
-                                        Layout.fillWidth: true; spacing: 4
-                                        Text { text: modelData.title; color: window.textPrimary; font.bold: true; Layout.fillWidth: true; elide: Text.ElideRight }
-                                        Text { text: modelData.status + " · " + modelData.progress + "%"; color: window.textMuted; font.pixelSize: 11 }
-                                        ProgressBar { Layout.fillWidth: true; value: modelData.progress / 100.0 }
-                                    }
-                                    Button { text: "Play"; enabled: modelData.id.length > 0; onClicked: backend.playItem(modelData.provider, modelData.id, modelData.title) }
-                                }
-                            }
-                        }
-                    }
-                }
+                Flickable { clip: true; contentWidth: width; contentHeight: health.implicitHeight + 50; ColumnLayout { id: health; width: parent.width; spacing: 14; RowLayout { Layout.leftMargin: 28; Layout.rightMargin: 28; Text { text: "Health & Logs"; color: win.text; font.pixelSize: 20; font.bold: true }; Item { Layout.fillWidth: true }; Button { text: "Refresh"; onClicked: systemBackend.refresh() }; Button { text: "Reload logs"; onClicked: systemBackend.loadLogs() } }; GridLayout { Layout.leftMargin: 28; Layout.rightMargin: 28; Layout.fillWidth: true; columns: 3; columnSpacing: 12; Repeater { model: [{n:"Zurg",v:win.systemInfo.zurg||"unknown"},{n:"rclone",v:win.systemInfo.rcloneInstalled?"installed":"missing"},{n:"Mount",v:win.systemInfo.mount||"unknown"}]; delegate: Rectangle { required property var modelData; Layout.fillWidth: true; Layout.preferredHeight: 90; radius: 11; color: win.panel; border.color: win.border; ColumnLayout { anchors.fill: parent; anchors.margins: 14; Text { text: modelData.n; color: win.muted; font.pixelSize: 10; font.bold: true }; Text { text: modelData.v; color: win.text; font.pixelSize: 15; font.bold: true } } } } }; Rectangle { Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28; Layout.preferredHeight: 500; radius: 12; color: "#05090d"; border.color: win.border; ScrollView { anchors.fill: parent; anchors.margins: 12; TextArea { text: win.logs || "No logs loaded yet."; readOnly: true; wrapMode: TextEdit.NoWrap; color: "#b9d0d3"; selectionColor: win.teal; background: null; font.family: "monospace"; font.pixelSize: 11 } } } } }
 
-                // Zurg
-                Item {
-                    ColumnLayout {
-                        anchors.fill: parent; anchors.margins: 28; spacing: 14
-                        Text { text: "Zurg & Mounts"; color: window.textPrimary; font.pixelSize: 24; font.bold: true }
-                        Text { text: "Local service controls are not wired up yet. This page intentionally does not start or stop services until their platform-specific configuration is implemented."; color: window.textMuted; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                        Rectangle { Layout.fillWidth: true; height: 1; color: window.borderColor }
-                        Text { text: "You can continue to use provider libraries and playback independently of Zurg/rclone."; color: window.textMuted; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                    }
-                }
+                Flickable { clip: true; contentWidth: width; contentHeight: settings.implicitHeight + 50; ColumnLayout { id: settings; width: parent.width; spacing: 14; Text { text: "Connections & Settings"; color: win.text; font.pixelSize: 20; font.bold: true; Layout.leftMargin: 28 }; Text { text: "Secrets are stored in the Linux desktop keyring. Entering a key replaces the saved value."; color: win.muted; Layout.leftMargin: 28; Layout.rightMargin: 28; wrapMode: Text.WordWrap }
+                    Repeater { model: [{n:"Real-Debrid",p:"real_debrid"},{n:"TorBox",p:"torbox"},{n:"DMM sponsor",p:"dmm"}]; delegate: Rectangle { required property var modelData; Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28; Layout.preferredHeight: 120; radius: 12; color: win.panel; border.color: win.border; RowLayout { anchors.fill: parent; anchors.margins: 14; ColumnLayout { Layout.fillWidth: true; Text { text: modelData.n; color: win.text; font.bold: true }; Text { text: backend.keyStatus(modelData.p); color: win.muted; font.pixelSize: 11 }; TextField { id: key; Layout.fillWidth: true; placeholderText: "API key"; echoMode: TextInput.Password; color: win.text; placeholderTextColor: win.muted; background: Rectangle { color: "#09121a"; radius: 8; border.color: win.border } } }; Button { text: "Save"; onClicked: backend.saveKey(modelData.p, key.text) }; Button { text: "Test"; onClicked: backend.testConnection(modelData.p) }; Button { text: "Remove"; onClicked: backend.removeKey(modelData.p) } } } }
+                    Text { text: "Status: " + win.status; color: win.muted; Layout.leftMargin: 28; Layout.rightMargin: 28; wrapMode: Text.WordWrap }
+                } }
 
-                // Health and logs
-                Item {
-                    ColumnLayout {
-                        anchors.fill: parent; anchors.margins: 28; spacing: 14
-                        Text { text: "Health & Logs"; color: window.textPrimary; font.pixelSize: 24; font.bold: true }
-                        Text { text: window.statusText; color: window.textMuted; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                        Text { text: "API operations use HTTPS, finite timeouts, and the operating-system keyring for credentials."; color: window.textMuted; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                        Button { text: "Test Real-Debrid"; onClicked: backend.testConnection("real_debrid") }
-                        Button { text: "Test TorBox"; onClicked: backend.testConnection("torbox") }
-                    }
-                }
-
-                // Settings / Services
-                Flickable {
-                    clip: true; contentWidth: availableWidth; contentHeight: settingsColumn.implicitHeight + 40
-                    ColumnLayout {
-                        id: settingsColumn; width: parent.width; spacing: 14
-                        Text { text: "Services & Settings"; color: window.textPrimary; font.pixelSize: 24; font.bold: true; Layout.leftMargin: 28 }
-                        Text { text: "Credentials are stored in your operating-system keyring, never in source files."; color: window.textMuted; Layout.leftMargin: 28; Layout.rightMargin: 28; wrapMode: Text.WordWrap }
-                        Repeater {
-                            model: [
-                                { key: "real_debrid", title: "Real-Debrid", desc: "API token for your own account." },
-                                { key: "torbox", title: "TorBox", desc: "API key for your own account." },
-                                { key: "dmm", title: "DMM sponsor key", desc: "Optional. Requires an active DMM sponsorship to search releases." }
-                            ]
-                            delegate: Rectangle {
-                                required property var modelData
-                                Layout.fillWidth: true; Layout.leftMargin: 28; Layout.rightMargin: 28; Layout.preferredHeight: modelData.key === "dmm" ? 170 : 190
-                                radius: 14; color: window.surface; border.color: window.borderColor
-                                ColumnLayout {
-                                    anchors.fill: parent; anchors.margins: 16; spacing: 8
-                                    Text { text: modelData.title; color: window.textPrimary; font.pixelSize: 16; font.bold: true }
-                                    Text { text: modelData.desc; color: window.textMuted; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                                    TextField {
-                                        id: keyField
-                                        Layout.fillWidth: true
-                                        placeholderText: "Paste key to save or replace"
-                                        echoMode: TextInput.Password
-                                        color: window.textPrimary; placeholderTextColor: window.textMuted
-                                        background: Rectangle { color: "#09121a"; radius: 8; border.color: window.borderColor }
-                                    }
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        Button { text: "Save key"; onClicked: { backend.saveKey(modelData.key, keyField.text); keyField.text = "" } }
-                                        Button {
-                                            text: "Test"
-                                            visible: modelData.key !== "dmm"
-                                            onClicked: backend.testConnection(modelData.key)
-                                            background: Rectangle { color: "#1b2631"; radius: 8 }
-                                        }
-                                        Button {
-                                            text: "Remove"
-                                            onClicked: backend.removeKey(modelData.key)
-                                            background: Rectangle { color: "#1b2631"; radius: 8 }
-                                        }
-                                        Item { Layout.fillWidth: true }
-                                        Text {
-                                            text: modelData.key === "real_debrid" ? window.rdStatus : (modelData.key === "torbox" ? window.tbStatus : window.dmmStatus)
-                                            color: window.textMuted; font.pixelSize: 10; elide: Text.ElideRight
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Player
-                Item {
-                    ColumnLayout {
-                        anchors.fill: parent; anchors.margins: 24; spacing: 12
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Text { text: "Now Playing"; color: window.textPrimary; font.pixelSize: 24; font.bold: true; Layout.fillWidth: true }
-                            Button { text: "Back to library"; onClicked: { mediaPlayer.stop(); window.playerSource = ""; window.currentPage = "Transfers" } }
-                        }
-                        Text { text: window.playerTitle; color: window.accent; font.pixelSize: 15; font.bold: true }
-                        Rectangle {
-                            Layout.fillWidth: true; Layout.fillHeight: true
-                            color: "#020407"; radius: 12; border.color: window.borderColor; clip: true
-                            VideoOutput { id: playerVideo; anchors.fill: parent; fillMode: VideoOutput.PreserveAspectFit }
-                            Text { anchors.centerIn: parent; text: mediaPlayer.errorString; color: "#ff8b8b"; visible: mediaPlayer.error !== MediaPlayer.NoError; wrapMode: Text.WordWrap; width: parent.width * 0.8 }
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Button { text: "▶ Play"; onClicked: mediaPlayer.play() }
-                            Button { text: "Ⅱ Pause"; onClicked: mediaPlayer.pause() }
-                            Button { text: "■ Stop"; onClicked: mediaPlayer.stop() }
-                            Slider {
-                                Layout.fillWidth: true
-                                from: 0; to: mediaPlayer.duration > 0 ? mediaPlayer.duration : 1
-                                value: mediaPlayer.position
-                                onMoved: mediaPlayer.position = value
-                            }
-                            Text { text: mediaPlayer.duration > 0 ? Math.floor(mediaPlayer.position / 60000) + ":" + ("0" + Math.floor(mediaPlayer.position / 1000) % 60).slice(-2) : "--:--"; color: window.textMuted }
-                        }
-                    }
+                Item { // Player
+                    Rectangle { anchors.fill: parent; color: "#05090d"; VideoOutput { id: video; anchors.fill: parent; fillMode: VideoOutput.PreserveAspectFit }; ColumnLayout { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: 20; spacing: 8; Rectangle { Layout.fillWidth: true; height: 60; radius: 12; color: "#b0000000"; RowLayout { anchors.fill: parent; anchors.margins: 12; Text { text: win.playerTitle || "Player"; color: "white"; font.bold: true; Layout.fillWidth: true }; Button { text: player.playbackState === MediaPlayer.PlayingState ? "Pause" : "Play"; onClicked: player.playbackState === MediaPlayer.PlayingState ? player.pause() : player.play() }; Button { text: "Stop"; onClicked: player.stop() }; Button { text: "Close"; onClicked: { player.stop(); win.playerUrl=""; win.page="Transfers" } } } } } }
                 }
             }
-
-            Rectangle {
-                Layout.fillWidth: true; Layout.preferredHeight: 30
-                color: "#0b1219"; border.color: window.borderColor
-                RowLayout {
-                    anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 14
-                    Text { text: "●"; color: window.accent; font.pixelSize: 9 }
-                    Text { text: window.statusText; color: window.textMuted; font.pixelSize: 10; Layout.fillWidth: true; elide: Text.ElideRight }
-                    Text { text: "LOCAL-FIRST"; color: "#607781"; font.pixelSize: 9; font.letterSpacing: 1.2 }
-                }
-            }
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 28; color: "#0b1219"; border.color: win.border; Text { anchors.left: parent.left; anchors.leftMargin: 18; anchors.verticalCenter: parent.verticalCenter; text: win.status; color: win.muted; font.pixelSize: 11; elide: Text.ElideRight; width: parent.width - 36 } }
         }
-    }
-
-    Component.onCompleted: {
-        window.rdStatus = backend.keyStatus("real_debrid")
-        window.tbStatus = backend.keyStatus("torbox")
-        window.dmmStatus = backend.keyStatus("dmm")
-        window.favoriteItems = backend.favorites()
     }
 }
