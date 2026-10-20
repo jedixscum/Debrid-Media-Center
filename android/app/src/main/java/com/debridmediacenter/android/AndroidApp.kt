@@ -357,6 +357,88 @@ private fun HomeScreen(store: ProviderStore, collectionStore: MediaCollectionSto
 }
 
 @Composable
+private fun HomeCatalogRow
+
+@Composable
+private fun HomeHistoryRow(entries: List<WatchHistoryEntry>, onResume: (WatchHistoryEntry) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(horizontal = 18.dp)) {
+            Text("Continue watching", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text("Pick up where you left off", color = Muted, fontSize = 11.sp)
+        }
+        LazyRow(contentPadding = PaddingValues(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(entries.take(12), key = { "${it.item.type}:${it.item.id}" }) { entry ->
+                Card(
+                    onClick = { onResume(entry) },
+                    modifier = Modifier.width(154.dp),
+                    colors = CardDefaults.cardColors(containerColor = Panel),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Box {
+                            AsyncImage(
+                                model = entry.item.posterUrl.takeIf { it.isNotBlank() },
+                                contentDescription = entry.item.title,
+                                modifier = Modifier.fillMaxWidth().height(126.dp),
+                                contentScale = ContentScale.Crop
+                            )
+                            Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp).background(Panel2)) {
+                                val progress = if (entry.durationMs > 0L) (entry.positionMs.toFloat() / entry.durationMs).coerceIn(0f, 1f) else 0f
+                                Box(Modifier.fillMaxWidth(progress).height(4.dp).background(Teal))
+                            }
+                        }
+                        Column(Modifier.padding(horizontal = 10.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(entry.item.title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                            Text("Resume playback  ·  ▶", color = Teal, fontSize = 10.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeCollectionRow(
+    title: String,
+    entries: List<MediaSearchResult>,
+    onOpenDetails: (MediaSearchResult) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(if (entries.isEmpty()) "Save titles to keep them close" else "${entries.size} saved title${if (entries.size == 1) "" else "s"}", color = Muted, fontSize = 11.sp)
+            }
+        }
+        if (entries.isEmpty()) {
+            Text("Your saved titles will appear here.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 18.dp))
+        } else {
+            LazyRow(contentPadding = PaddingValues(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(entries.take(20), key = { "${it.type}:${it.id}" }) { entry ->
+                    Column(Modifier.width(116.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Card(
+                            onClick = { onOpenDetails(entry) },
+                            colors = CardDefaults.cardColors(containerColor = Panel2),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            AsyncImage(
+                                model = entry.posterUrl.takeIf { it.isNotBlank() },
+                                contentDescription = entry.title,
+                                modifier = Modifier.fillMaxWidth().height(166.dp),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                        Text(entry.title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, lineHeight = 15.sp)
+                        Text(entry.year.ifBlank { entry.type.uppercase() }, color = Muted, fontSize = 10.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun HomeCatalogRow(title: String, items: List<MediaSearchResult>, loading: Boolean, onSeeAll: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(
@@ -1281,6 +1363,144 @@ private fun SettingsStatusRow(label: String, value: String, positive: Boolean) {
             Text(label, fontWeight = FontWeight.Medium, fontSize = 13.sp)
         }
         Text(value, color = if (positive) Teal else Muted, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun DmcPlayer(
+
+private data class MediaDetailsInfo(
+    val overview: String = "",
+    val genres: List<String> = emptyList(),
+    val rating: String = "",
+    val runtime: String = "",
+    val cast: List<String> = emptyList(),
+    val releaseInfo: String = ""
+)
+
+private fun fetchMediaDetails(item: MediaSearchResult): MediaDetailsInfo {
+    val type = if (item.type == "movie") "movie" else "series"
+    val id = URLEncoder.encode(item.id, "UTF-8")
+    val connection = (URL("https://v3-cinemeta.strem.io/meta/$type/$id.json").openConnection() as HttpURLConnection).apply {
+        requestMethod = "GET"
+        connectTimeout = 10000
+        readTimeout = 12000
+        setRequestProperty("Accept", "application/json")
+        setRequestProperty("User-Agent", "DebridMediaCenter/0.8")
+    }
+    try {
+        val code = connection.responseCode
+        if (code !in 200..299) throw IllegalStateException("Details service returned HTTP $code.")
+        val meta = JSONObject(connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }).optJSONObject("meta")
+            ?: throw IllegalStateException("No extra details were returned.")
+        val genresArray = meta.optJSONArray("genres")
+        val genres = if (genresArray == null) emptyList() else (0 until genresArray.length()).mapNotNull { genresArray.optString(it).takeIf(String::isNotBlank) }
+        val castArray = meta.optJSONArray("cast")
+        val cast = if (castArray == null) emptyList() else (0 until castArray.length()).mapNotNull { castArray.optString(it).takeIf(String::isNotBlank) }.take(8)
+        return MediaDetailsInfo(
+            overview = meta.optString("description").takeIf { it.isNotBlank() } ?: item.overview,
+            genres = genres,
+            rating = meta.optString("imdbRating").takeIf { it.isNotBlank() && it != "null" }.orEmpty(),
+            runtime = meta.optString("runtime").takeIf { it.isNotBlank() && it != "null" }.orEmpty(),
+            cast = cast,
+            releaseInfo = meta.optString("releaseInfo").takeIf { it.isNotBlank() && it != "null" }.orEmpty()
+        )
+    } finally {
+        connection.disconnect()
+    }
+}
+
+@Composable
+private fun MediaDetailsScreen(
+    item: MediaSearchResult,
+    collectionStore: MediaCollectionStore,
+    onBack: () -> Unit,
+    onFindReleases: (MediaSearchResult) -> Unit
+) {
+    var saved by remember(item.id) { mutableStateOf(collectionStore.isSaved(item)) }
+    var details by remember(item.id) { mutableStateOf<MediaDetailsInfo?>(null) }
+    var detailsError by remember(item.id) { mutableStateOf("") }
+
+    LaunchedEffect(item.id) {
+        val result = withContext(Dispatchers.IO) { runCatching { fetchMediaDetails(item) } }
+        result.onSuccess { details = it }.onFailure { detailsError = it.message ?: "Extra details are temporarily unavailable." }
+    }
+
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(bottom = 28.dp)) {
+        item {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 12.dp, end = 18.dp, top = 18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                IconButton(onClick = onBack) { Icon(Icons.Default.Home, contentDescription = "Back", tint = Teal) }
+                Column(Modifier.weight(1f)) {
+                    Text("TITLE DETAILS", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+                    Text("Discover something worth watching", color = Muted, fontSize = 11.sp)
+                }
+            }
+        }
+        item {
+            Card(
+                Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                colors = CardDefaults.cardColors(containerColor = Panel2),
+                shape = RoundedCornerShape(22.dp)
+            ) {
+                Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Top) {
+                    AsyncImage(
+                        model = item.posterUrl.takeIf { it.isNotBlank() },
+                        contentDescription = item.title,
+                        modifier = Modifier.width(124.dp).height(184.dp),
+                        contentScale = ContentScale.Crop
+                    )
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(item.title, fontSize = 22.sp, lineHeight = 26.sp, fontWeight = FontWeight.Bold)
+                        Text("${item.year.ifBlank { details?.releaseInfo ?: "Release year unavailable" }} · ${item.type.uppercase()}", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        val rating = details?.rating.orEmpty()
+                        if (rating.isNotBlank()) Text("★ $rating / 10", color = Color(0xFFFFD166), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        val runtime = details?.runtime.orEmpty()
+                        if (runtime.isNotBlank()) Text(runtime, color = Muted, fontSize = 11.sp)
+                        Button(
+                            onClick = { onFindReleases(item) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Bg),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 9.dp)
+                        ) { Text("Find releases", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                        OutlinedButton(
+                            onClick = { saved = collectionStore.toggleWatchlist(item) },
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
+                        ) { Text(if (saved) "♥ Saved" else "＋ Watchlist", fontSize = 11.sp) }
+                    }
+                }
+            }
+        }
+        item {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Overview", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                val overview = details?.overview?.takeIf { it.isNotBlank() } ?: item.overview
+                Text(overview.ifBlank { if (details == null) "Loading synopsis…" else "No synopsis is available for this title." }, color = Muted, fontSize = 13.sp, lineHeight = 19.sp)
+                if (detailsError.isNotBlank()) Text(detailsError, color = Muted, fontSize = 11.sp)
+            }
+        }
+        if (!details?.genres.isNullOrEmpty()) {
+            item {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Genres", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        details!!.genres.take(5).forEach { FilterChip(selected = false, onClick = {}, enabled = false, label = { Text(it) }) }
+                    }
+                }
+            }
+        }
+        if (!details?.cast.isNullOrEmpty()) {
+            item {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text("Cast", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text(details!!.cast.joinToString("  ·  "), color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
+                }
+            }
+        }
     }
 }
 
