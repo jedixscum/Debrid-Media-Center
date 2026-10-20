@@ -61,6 +61,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
@@ -666,18 +668,62 @@ private fun SettingsScreen() {
 @Composable
 private fun DmcPlayer(url: String, onClose: () -> Unit) {
     val context = LocalContext.current
+    var playbackError by remember(url) { mutableStateOf("") }
     val player = remember(url) {
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(MediaItem.fromUri(Uri.parse(url)))
-            prepare()
             playWhenReady = true
+            prepare()
         }
     }
-    androidx.compose.runtime.DisposableEffect(player) { onDispose { player.release() } }
+    androidx.compose.runtime.DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                playbackError = error.message ?: error.errorCodeName
+            }
+        }
+        player.addListener(listener)
+        onDispose {
+            player.removeListener(listener)
+            player.release()
+        }
+    }
     Column(Modifier.fillMaxSize().background(Color.Black)) {
-        Row(Modifier.fillMaxWidth().padding(10.dp), horizontalArrangement = Arrangement.End) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("NOW PLAYING", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            if (playbackError.isNotBlank()) {
+                OutlinedButton(onClick = {
+                    playbackError = ""
+                    player.seekTo(0)
+                    player.prepare()
+                    player.playWhenReady = true
+                }) { Text("Retry") }
+            }
             OutlinedButton(onClick = onClose) { Text("Close") }
         }
-        AndroidView(factory = { PlayerView(it).apply { this.player = player } }, modifier = Modifier.fillMaxWidth().weight(1f))
+        if (playbackError.isNotBlank()) {
+            Text(
+                "Playback failed: $playbackError",
+                color = Color(0xFFFF9B9B),
+                fontSize = 12.sp,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+        }
+        AndroidView(
+            factory = { PlayerView(it).apply { this.player = player; useController = true } },
+            update = { it.player = player },
+            modifier = Modifier.fillMaxWidth().weight(1f)
+        )
+        Text(
+            "If a link does not play, check that it is a direct, accessible media URL.",
+            color = Muted,
+            fontSize = 11.sp,
+            modifier = Modifier.fillMaxWidth().padding(12.dp)
+        )
     }
 }
