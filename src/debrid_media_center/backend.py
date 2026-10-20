@@ -66,8 +66,8 @@ class Backend(QObject):
         def target() -> None:
             try:
                 result = operation()
-                success(result)
                 self.statusChanged.emit("Ready")
+                success(result)
             except Exception as exc:
                 self.statusChanged.emit(f"Error: {exc}")
 
