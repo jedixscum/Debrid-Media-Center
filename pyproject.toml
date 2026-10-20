@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "debrid-media-center"
-version = "0.2.0"
+version = "0.3.0"
 description = "Native Linux media and debrid manager"
 readme = "README.md"
 requires-python = ">=3.12"
