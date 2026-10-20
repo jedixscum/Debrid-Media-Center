@@ -822,9 +822,7 @@ private fun LibraryScreen(
                 val connectedProviders = listOf(ProviderStore.REAL_DEBRID, ProviderStore.TORBOX)
                     .filter { store.hasToken(it) }
                 if (connectedProviders.isEmpty()) {
-                    return@withContext Result.failure<List<ProviderLibraryItem>>(
-                        IllegalStateException("Connect Real-Debrid or TorBox in Settings to load your provider library.")
-                    )
+                    return@withContext Result.success(emptyList<ProviderLibraryItem>())
                 }
                 val combined = mutableListOf<ProviderLibraryItem>()
                 val failures = mutableListOf<String>()
@@ -896,21 +894,7 @@ private fun LibraryScreen(
                 }
             }
         }
-        if (!store.hasToken(ProviderStore.REAL_DEBRID) && !store.hasToken(ProviderStore.TORBOX)) {
-            item {
-                Card(
-                    Modifier.fillMaxWidth().padding(horizontal = 18.dp),
-                    colors = CardDefaults.cardColors(containerColor = Panel),
-                    shape = RoundedCornerShape(18.dp)
-                ) {
-                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Connect a provider", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Text("Add your Real-Debrid or TorBox API key in Settings. Your provider items will appear here once connected.", color = Muted, fontSize = 12.sp)
-                        Button(onClick = goServices, modifier = Modifier.fillMaxWidth()) { Text("Open Settings") }
-                    }
-                }
-            }
-        } else if (loading && !loaded) {
+        if (loading && !loaded) {
             item {
                 Column(
                     Modifier.fillMaxWidth().padding(vertical = 28.dp),
@@ -931,7 +915,6 @@ private fun LibraryScreen(
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(if (notice.isNotBlank()) "Nothing here yet" else "No library items found", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         Text(notice.ifBlank { "No items were returned by your connected providers. Pull to refresh with the refresh button above." }, color = Muted, fontSize = 12.sp)
-                        OutlinedButton(onClick = goServices) { Text("Manage providers") }
                     }
                 }
             }
