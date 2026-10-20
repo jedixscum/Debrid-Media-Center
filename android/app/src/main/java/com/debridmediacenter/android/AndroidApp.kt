@@ -115,13 +115,10 @@ fun DebridMediaCenterApp() {
                 )
                 detailsItem != null -> MediaDetailsScreen(
                     item = detailsItem!!,
+                    store = store,
+                    scope = scope,
                     collectionStore = collectionStore,
-                    onBack = { detailsItem = null },
-                    onFindReleases = { selected ->
-                        pendingSelection = selected
-                        detailsItem = null
-                        tab = 1
-                    }
+                    onBack = { detailsItem = null }
                 )
                 else -> {
                     Column(Modifier.fillMaxSize()) {
@@ -1419,17 +1416,39 @@ private fun fetchMediaDetails(item: MediaSearchResult): MediaDetailsInfo {
 @Composable
 private fun MediaDetailsScreen(
     item: MediaSearchResult,
+    store: ProviderStore,
+    scope: CoroutineScope,
     collectionStore: MediaCollectionStore,
-    onBack: () -> Unit,
-    onFindReleases: (MediaSearchResult) -> Unit
+    onBack: () -> Unit
 ) {
     var saved by remember(item.id) { mutableStateOf(collectionStore.isSaved(item)) }
     var details by remember(item.id) { mutableStateOf<MediaDetailsInfo?>(null) }
     var detailsError by remember(item.id) { mutableStateOf("") }
+    var releases by remember(item.id) { mutableStateOf<List<ReleaseSearchResult>>(emptyList()) }
+    var releaseStatus by remember(item.id) { mutableStateOf("Preparing release search…") }
+    var releaseBusy by remember(item.id) { mutableStateOf(false) }
+    val connectedProviders = listOf(ProviderStore.REAL_DEBRID, ProviderStore.TORBOX).filter { store.hasToken(it) }
 
     LaunchedEffect(item.id) {
         val result = withContext(Dispatchers.IO) { runCatching { fetchMediaDetails(item) } }
         result.onSuccess { details = it }.onFailure { detailsError = it.message ?: "Extra details are temporarily unavailable." }
+
+        if (!item.id.matches(Regex("^tt\\d+$"))) {
+            releaseStatus = "This title has no valid IMDb ID for release search."
+        } else if (!store.hasToken(ProviderStore.DMM)) {
+            releaseStatus = "Connect a DMM sponsor API key in Settings to search releases. Your debrid account can stay disconnected until you need it."
+        } else {
+            releaseBusy = true
+            releaseStatus = "Automatically searching releases…"
+            val found = withContext(Dispatchers.IO) {
+                runCatching { store.searchReleases(item.id, if (item.type == "movie") "movie" else "tv", "best") }
+            }
+            releaseBusy = false
+            found.onSuccess {
+                releases = it
+                releaseStatus = if (it.isEmpty()) "No matching releases were returned. Try another title or quality in Discover." else "Found ${it.size} releases."
+            }.onFailure { releaseStatus = it.message ?: "Release search failed." }
+        }
     }
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(bottom = 28.dp)) {
@@ -1466,17 +1485,51 @@ private fun MediaDetailsScreen(
                         if (rating.isNotBlank()) Text("★ $rating / 10", color = Color(0xFFFFD166), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         val runtime = details?.runtime.orEmpty()
                         if (runtime.isNotBlank()) Text(runtime, color = Muted, fontSize = 11.sp)
-                        Button(
-                            onClick = { onFindReleases(item) },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Bg),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 9.dp)
-                        ) { Text("Find releases", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                         OutlinedButton(
                             onClick = { saved = collectionStore.toggleWatchlist(item) },
                             modifier = Modifier.fillMaxWidth(),
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
                         ) { Text(if (saved) "♥ Saved" else "＋ Watchlist", fontSize = 11.sp) }
+                    }
+                }
+            }
+        }
+        item {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Available releases", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    when {
+                        connectedProviders.isEmpty() -> "No debrid service connected yet. You can still search releases, then connect Real-Debrid or TorBox when ready."
+                        connectedProviders.size == 2 -> "Release matches will be available to add to both connected services."
+                        connectedProviders.firstOrNull() == ProviderStore.TORBOX -> "Searching releases for your connected TorBox account. Real-Debrid can be added later in Settings."
+                        else -> "Searching releases for your connected Real-Debrid account. TorBox can also be connected in Settings."
+                    },
+                    color = Muted,
+                    fontSize = 12.sp
+                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (releaseBusy) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Teal, strokeWidth = 2.dp)
+                    Text(releaseStatus, color = if (releases.isNotEmpty()) Teal else Muted, fontSize = 12.sp)
+                }
+            }
+        }
+        if (releases.isNotEmpty()) {
+            items(releases, key = { "details-release-${item.id}-${it.hash}" }) { release ->
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (ProviderStore.REAL_DEBRID in connectedProviders) {
+                        ReleaseCard(release, ProviderStore.REAL_DEBRID, store, scope) { releaseStatus = it }
+                    }
+                    if (ProviderStore.TORBOX in connectedProviders) {
+                        ReleaseCard(release, ProviderStore.TORBOX, store, scope) { releaseStatus = it }
+                    }
+                    if (connectedProviders.isEmpty()) {
+                        Card(Modifier.fillMaxWidth().padding(horizontal = 18.dp), colors = CardDefaults.cardColors(Panel), shape = RoundedCornerShape(14.dp)) {
+                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(release.title, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text("${release.sizeMb.toInt()} MB · ${release.hash.take(10)}…", color = Muted, fontSize = 10.sp)
+                                Text("Connect TorBox or Real-Debrid in Settings to add this release.", color = Muted, fontSize = 11.sp)
+                            }
+                        }
                     }
                 }
             }
