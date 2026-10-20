@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Debrid Media Center
+Comment=Native media and debrid manager
+Exec=debrid-media-center
+Icon=applications-multimedia
+Terminal=false
+Categories=AudioVideo;Video;Utility;
+StartupNotify=true
