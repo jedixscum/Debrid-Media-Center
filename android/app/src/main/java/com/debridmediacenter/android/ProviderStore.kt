@@ -309,6 +309,9 @@ class ProviderStore(context: Context) {
         val hash = Regex("(?i)(?:btih:)?([a-f0-9]{40})").find(raw)?.groupValues?.get(1)?.lowercase()
             ?: throw IllegalArgumentException("Enter a 40-character hexadecimal info hash or a magnet link containing one.")
 
+        if (provider == REAL_DEBRID) {
+            throw IllegalStateException("Real-Debrid no longer exposes a reliable instant-availability check here. You can still add the magnet directly; use TorBox for the supported cache check.")
+        }
         val endpoint = when (provider) {
             REAL_DEBRID -> "https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/$hash"
             TORBOX -> "https://api.torbox.app/v1/api/torrents/checkcached?hash=$hash&format=object&list_files=false"
