@@ -217,7 +217,7 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, onPlay: 
         query = item.title
         activeTool = "search"
         releases = emptyList()
-        status = "Selected \${item.title}. Choose a provider and find releases."
+        status = "Selected ${item.title}. Choose a provider and find releases."
     }
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(bottom = 28.dp)) {
@@ -248,7 +248,7 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, onPlay: 
                                 scope.launch {
                                     val result = withContext(Dispatchers.IO) { runCatching { searchTitles(query) } }
                                     busy = false
-                                    result.onSuccess { results = it; status = if (it.isEmpty()) "No matching titles found." else "\${it.size} titles found." }
+                                    result.onSuccess { results = it; status = if (it.isEmpty()) "No matching titles found." else "${it.size} titles found." }
                                         .onFailure { results = emptyList(); status = it.message ?: "Search failed." }
                                 }
                             }) { Icon(Icons.Default.Search, contentDescription = "Search") }
@@ -279,7 +279,7 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, onPlay: 
                                     val item = selected!!
                                     val result = withContext(Dispatchers.IO) { runCatching { store.searchReleases(item.id, item.type, quality) } }
                                     busy = false
-                                    result.onSuccess { releases = it; status = if (it.isEmpty()) "No releases returned." else "\${it.size} releases found." }
+                                    result.onSuccess { releases = it; status = if (it.isEmpty()) "No releases returned." else "${it.size} releases found." }
                                         .onFailure { status = it.message ?: "Release search failed." }
                                 }
                             }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Bg)) {
@@ -359,7 +359,7 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, onPlay: 
         } else if (genreTitles.isNotEmpty()) {
             item {
                 LazyRow(contentPadding = PaddingValues(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(genreTitles, key = { "genre-\${it.id}" }) { item -> PosterTile(item) { chooseTitle(item) } }
+                    items(genreTitles, key = { "genre-${it.id}" }) { item -> PosterTile(item) { chooseTitle(item) } }
                 }
             }
         } else {
@@ -380,7 +380,7 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, onPlay: 
         } else if (recent.isNotEmpty()) {
             item {
                 LazyRow(contentPadding = PaddingValues(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(recent, key = { "recent-\${it.id}" }) { item -> PosterTile(item) { chooseTitle(item) } }
+                    items(recent, key = { "recent-${it.id}" }) { item -> PosterTile(item) { chooseTitle(item) } }
                 }
             }
         } else {
@@ -408,7 +408,7 @@ private fun FeaturedHero(item: MediaSearchResult, onSelect: (MediaSearchResult) 
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("EDITOR'S PICK", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
                 Text(item.title, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Text("\${item.year.ifBlank { "Featured" }} · \${item.type.uppercase()}", color = Muted, fontSize = 11.sp)
+                Text("${item.year.ifBlank { "Featured" }} · ${item.type.uppercase()}", color = Muted, fontSize = 11.sp)
                 if (item.overview.isNotBlank()) Text(item.overview.take(150), color = Muted, fontSize = 11.sp)
                 Button(onClick = { onSelect(item) }, colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Bg)) {
                     Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -437,7 +437,7 @@ private fun PosterTile(item: MediaSearchResult, onClick: () -> Unit) {
             )
             Column(Modifier.padding(horizontal = 9.dp, vertical = 3.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(item.title, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 2)
-                Text("\${item.year.ifBlank { item.type.uppercase() }}", color = Teal, fontSize = 10.sp)
+                Text("${item.year.ifBlank { item.type.uppercase() }}", color = Teal, fontSize = 10.sp)
             }
         }
     }
@@ -470,7 +470,7 @@ private fun fetchCatalogTitles(
 ): List<MediaSearchResult> {
     val nativeType = if (type == "series") "series" else "movie"
     val extraPath = if (extraName != null && extraValue != null) {
-        "/$extraName=\${URLEncoder.encode(extraValue, "UTF-8").replace("+", "%20")}"
+        "/$extraName=${URLEncoder.encode(extraValue, "UTF-8").replace("+", "%20")}"
     } else ""
     val endpoint = "https://v3-cinemeta.strem.io/catalog/$nativeType/$catalogId$extraPath.json"
     val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
