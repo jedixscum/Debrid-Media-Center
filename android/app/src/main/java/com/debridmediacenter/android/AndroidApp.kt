@@ -1066,39 +1066,80 @@ private fun LibraryScreen(
 @Composable
 private fun ProviderCard(store: ProviderStore, scope: CoroutineScope, provider: String, name: String) {
     var token by remember { mutableStateOf("") }
-    var status by remember { mutableStateOf(if (store.hasToken(provider)) "Saved key" else "Not connected") }
+    var status by remember { mutableStateOf(if (store.hasToken(provider)) "API key saved" else "Not connected") }
     var busy by remember { mutableStateOf(false) }
-    Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel), shape = RoundedCornerShape(18.dp)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(name, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            OutlinedTextField(token, { token = it }, label = { Text("API key") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = {
-                    runCatching { store.saveToken(provider, token) }
-                        .onSuccess { status = "API key saved securely"; token = "" }
-                        .onFailure { status = it.message ?: "Save failed" }
-                }) { Text("Save key") }
-                if (provider != ProviderStore.DMM) {
-                    OutlinedButton(enabled = !busy, onClick = {
-                        busy = true
-                        scope.launch {
-                            val enteredToken = token.trim().takeIf { it.isNotEmpty() }
-                            val result = withContext(Dispatchers.IO) {
-                                runCatching { store.testConnection(provider, enteredToken) }
-                            }
-                            busy = false
-                            result.onSuccess {
-                                if (enteredToken != null) {
-                                    runCatching { store.saveToken(provider, enteredToken) }
-                                        .onSuccess { token = "" }
-                                }
-                                status = it
-                            }.onFailure { status = it.message ?: "Connection failed" }
-                        }
-                    }) { Text(if (busy) "Checking…" else "Test & view account") }
+    var expanded by remember { mutableStateOf(false) }
+    val hasKey = store.hasToken(provider)
+
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(Panel2),
+        shape = RoundedCornerShape(14.dp)
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(status, color = if (hasKey) Teal else Muted, fontSize = 11.sp, maxLines = 2)
+                }
+                TextButton(onClick = { expanded = !expanded }) {
+                    Text(if (expanded) "Done" else if (hasKey) "Manage" else "Set up")
                 }
             }
-            Text(status, color = Muted, fontSize = 11.sp)
+            if (expanded) {
+                OutlinedTextField(
+                    value = token,
+                    onValueChange = { token = it },
+                    label = { Text("API key") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = {
+                            runCatching { store.saveToken(provider, token) }
+                                .onSuccess {
+                                    status = "API key saved securely"
+                                    token = ""
+                                }
+                                .onFailure { status = it.message ?: "Save failed" }
+                        },
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                    ) { Text("Save key") }
+                    if (provider != ProviderStore.DMM) {
+                        OutlinedButton(
+                            enabled = !busy,
+                            onClick = {
+                                busy = true
+                                scope.launch {
+                                    val enteredToken = token.trim().takeIf { it.isNotEmpty() }
+                                    val result = withContext(Dispatchers.IO) {
+                                        runCatching { store.testConnection(provider, enteredToken) }
+                                    }
+                                    busy = false
+                                    result.onSuccess {
+                                        if (enteredToken != null) {
+                                            runCatching { store.saveToken(provider, enteredToken) }
+                                                .onSuccess { token = "" }
+                                        }
+                                        status = it
+                                    }.onFailure { status = it.message ?: "Connection failed" }
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                        ) { Text(if (busy) "Checking…" else "Test account") }
+                    }
+                }
+            }
         }
     }
 }
@@ -1116,7 +1157,7 @@ private fun SettingsScreen(store: ProviderStore, scope: CoroutineScope, go: (Int
     ) {
         item { Header("Settings", "Make Debrid Media Center yours.") }
         item {
-            SettingsSection("PROVIDER CONNECTIONS", "Add an API key, test your account, and view premium details here. Keys are encrypted with Android Keystore.") {
+            SettingsSection("PROVIDER CONNECTIONS", "Tap a provider to add or manage its API key. Keys are encrypted on this device.") {
                 ProviderCard(store, scope, ProviderStore.REAL_DEBRID, "Real-Debrid")
                 ProviderCard(store, scope, ProviderStore.TORBOX, "TorBox")
                 ProviderCard(store, scope, ProviderStore.DMM, "DMM sponsor API")
