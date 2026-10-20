@@ -310,6 +310,151 @@ class ProviderStore(context: Context) {
         }
     }
 
+
+    /**
+     * Resolves a playable video URL from a completed item in the user's own provider library.
+     * URLs are obtained on demand and are not persisted.
+     */
+    fun resolvePlaybackUrl(provider: String, itemId: String): String {
+        val secret = readToken(provider)?.trim().orEmpty()
+        require(secret.isNotEmpty()) { "Connect this provider in Services first." }
+        require(itemId.isNotBlank()) { "This library item has no provider ID." }
+
+        return when (provider) {
+            REAL_DEBRID -> {
+                val infoConnection = (URL("https://api.real-debrid.com/rest/1.0/torrents/info/" +
+                    URLEncoder.encode(itemId, "UTF-8")).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 12000
+                    readTimeout = 18000
+                    setRequestProperty("Authorization", "Bearer $secret")
+                    setRequestProperty("Accept", "application/json")
+                }
+                val info = try {
+                    val code = infoConnection.responseCode
+                    val stream = if (code in 200..299) infoConnection.inputStream else infoConnection.errorStream
+                    val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                    if (code !in 200..299) throw IllegalStateException("Could not inspect Real-Debrid item (HTTP $code).")
+                    JSONObject(body)
+                } finally { infoConnection.disconnect() }
+
+                val status = info.optString("status")
+                if (status != "downloaded") {
+                    throw IllegalStateException("This item is not ready to play yet (status: $status).")
+                }
+                val files = info.optJSONArray("files") ?: org.json.JSONArray()
+                val links = info.optJSONArray("links") ?: org.json.JSONArray()
+                val videoExtensions = listOf(".mkv", ".mp4", ".m4v", ".avi", ".mov", ".webm", ".ts")
+                var selectedLink: String? = null
+                for (i in 0 until files.length()) {
+                    val file = files.optJSONObject(i) ?: continue
+                    if (file.optInt("selected", 0) != 1) continue
+                    val path = file.optString("path").lowercase()
+                    if (videoExtensions.any { path.endsWith(it) } && i < links.length()) {
+                        selectedLink = links.optString(i).takeIf { it.startsWith("http") }
+                        if (selectedLink != null) break
+                    }
+                }
+                if (selectedLink == null) {
+                    for (i in 0 until links.length()) {
+                        val link = links.optString(i)
+                        if (link.startsWith("http")) { selectedLink = link; break }
+                    }
+                }
+                val link = selectedLink ?: throw IllegalStateException(
+                    "No selected playable files were returned. Open Real-Debrid and select the video file first."
+                )
+                val unrestrict = (URL("https://api.real-debrid.com/rest/1.0/unrestrict/link").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    doOutput = true
+                    connectTimeout = 12000
+                    readTimeout = 20000
+                    setRequestProperty("Authorization", "Bearer $secret")
+                    setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+                    setRequestProperty("Accept", "application/json")
+                }
+                try {
+                    val body = "link=" + URLEncoder.encode(link, "UTF-8")
+                    OutputStreamWriter(unrestrict.outputStream, Charsets.UTF_8).use { it.write(body) }
+                    val code = unrestrict.responseCode
+                    val stream = if (code in 200..299) unrestrict.inputStream else unrestrict.errorStream
+                    val response = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                    if (code !in 200..299) throw IllegalStateException("Could not resolve Real-Debrid playback link (HTTP $code).")
+                    val download = JSONObject(response).optString("download")
+                    if (!download.startsWith("https://") && !download.startsWith("http://")) {
+                        throw IllegalStateException("Real-Debrid did not return a playable link.")
+                    }
+                    download
+                } finally { unrestrict.disconnect() }
+            }
+            TORBOX -> {
+                val listConnection = (URL("https://api.torbox.app/v1/api/torrents/mylist?id=" +
+                    URLEncoder.encode(itemId, "UTF-8")).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 12000
+                    readTimeout = 18000
+                    setRequestProperty("Authorization", "Bearer $secret")
+                    setRequestProperty("Accept", "application/json")
+                }
+                val item = try {
+                    val code = listConnection.responseCode
+                    val stream = if (code in 200..299) listConnection.inputStream else listConnection.errorStream
+                    val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                    if (code !in 200..299) throw IllegalStateException("Could not inspect TorBox item (HTTP $code).")
+                    val root = JSONObject(body)
+                    if (root.has("success") && !root.optBoolean("success", false)) {
+                        throw IllegalStateException(root.optString("detail").ifBlank { "TorBox could not inspect this item." })
+                    }
+                    val data = root.opt("data")
+                    when (data) {
+                        is JSONObject -> data
+                        is org.json.JSONArray -> data.optJSONObject(0)
+                        else -> null
+                    } ?: throw IllegalStateException("TorBox returned no details for this item.")
+                } finally { listConnection.disconnect() }
+
+                val files = item.optJSONArray("files") ?: org.json.JSONArray()
+                val videoExtensions = listOf(".mkv", ".mp4", ".m4v", ".avi", ".mov", ".webm", ".ts")
+                var fileId: String? = null
+                for (i in 0 until files.length()) {
+                    val file = files.optJSONObject(i) ?: continue
+                    val name = file.optString("name").ifBlank { file.optString("short_name") }.lowercase()
+                    if (videoExtensions.any { name.endsWith(it) }) {
+                        fileId = file.opt("id")?.toString()?.takeIf { it.isNotBlank() && it != "null" }
+                        if (fileId != null) break
+                    }
+                }
+                val selectedFile = fileId ?: throw IllegalStateException(
+                    "No video file was found. The torrent may still be processing or may contain unsupported files."
+                )
+                val endpoint = "https://api.torbox.app/v1/api/torrents/requestdl?token=" +
+                    URLEncoder.encode(secret, "UTF-8") + "&torrent_id=" +
+                    URLEncoder.encode(itemId, "UTF-8") + "&file_id=" +
+                    URLEncoder.encode(selectedFile, "UTF-8")
+                val dlConnection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 12000
+                    readTimeout = 20000
+                    setRequestProperty("Authorization", "Bearer $secret")
+                    setRequestProperty("Accept", "application/json")
+                }
+                try {
+                    val code = dlConnection.responseCode
+                    val stream = if (code in 200..299) dlConnection.inputStream else dlConnection.errorStream
+                    val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                    if (code !in 200..299) throw IllegalStateException("Could not request TorBox playback link (HTTP $code).")
+                    val root = JSONObject(body)
+                    if (!root.optBoolean("success", false)) {
+                        throw IllegalStateException(root.optString("detail").ifBlank { "TorBox could not create a playback link." })
+                    }
+                    root.optString("data").takeIf { it.startsWith("https://") || it.startsWith("http://") }
+                        ?: throw IllegalStateException("TorBox did not return a playable URL.")
+                } finally { dlConnection.disconnect() }
+            }
+            else -> throw IllegalArgumentException("Unknown provider.")
+        }
+    }
+
     fun fetchLibrary(provider: String): List<ProviderLibraryItem> {
         val secret = readToken(provider)?.trim().orEmpty()
         require(secret.isNotEmpty()) { "Connect this provider in Services first." }
