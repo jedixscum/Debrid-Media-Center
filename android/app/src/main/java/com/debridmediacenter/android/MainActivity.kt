@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,6 +48,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -231,6 +234,13 @@ private fun ProviderCard(title: String, subtitle: String, provider: String, stor
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Teal,
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    focusedPlaceholderColor = Muted,
+                    unfocusedPlaceholderColor = Muted,
+                    focusedContainerColor = Panel,
+                    unfocusedContainerColor = Panel,
+                    disabledTextColor = Muted,
                     focusedLabelColor = Teal,
                     cursorColor = Teal,
                     unfocusedBorderColor = Muted.copy(alpha = .45f)
@@ -350,6 +360,13 @@ private fun DiscoverScreen() {
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = Teal,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedPlaceholderColor = Muted,
+                            unfocusedPlaceholderColor = Muted,
+                            focusedContainerColor = Panel,
+                            unfocusedContainerColor = Panel,
+                            disabledTextColor = Muted,
                             focusedLabelColor = Teal,
                             cursorColor = Teal,
                             unfocusedBorderColor = Muted.copy(alpha = .45f)
@@ -394,14 +411,27 @@ private fun DiscoverScreen() {
         items(titleResults.size) { index ->
             val result = titleResults[index]
             Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(16.dp)) {
-                Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(result.title, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                        Text(result.type.uppercase(), color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Row(
+                    Modifier.fillMaxWidth().padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    AsyncImage(
+                        model = result.posterUrl.takeIf { it.isNotBlank() },
+                        contentDescription = result.title + " poster",
+                        modifier = Modifier.size(width = 94.dp, height = 138.dp)
+                            .background(Background, RoundedCornerShape(10.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(result.title, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                            Text(result.type.uppercase(), color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                        if (result.year.isNotBlank()) Text(result.year, color = Muted, fontSize = 12.sp)
+                        if (result.overview.isNotBlank()) Text(result.overview, color = Muted, fontSize = 12.sp, maxLines = 5)
+                        Text("IMDb / Trakt ID: " + result.id, color = Muted.copy(alpha = .8f), fontSize = 10.sp)
                     }
-                    if (result.year.isNotBlank()) Text(result.year, color = Muted, fontSize = 12.sp)
-                    if (result.overview.isNotBlank()) Text(result.overview, color = Muted, fontSize = 12.sp, maxLines = 3)
-                    Text("IMDb / Trakt ID: " + result.id, color = Muted.copy(alpha = .8f), fontSize = 10.sp)
                 }
             }
         }
