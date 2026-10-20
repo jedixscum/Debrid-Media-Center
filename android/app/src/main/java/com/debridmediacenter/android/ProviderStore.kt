@@ -377,6 +377,16 @@ class ProviderStore(context: Context) {
             }
             return (filtered.ifEmpty { if (quality == "best") unique else emptyList() })
                 .sortedByDescending { it.sizeMb }
+        } catch (e: java.net.UnknownHostException) {
+            throw IllegalStateException(
+                "TorBox's release-search service could not be reached (DNS lookup failed). Its search API may be unavailable or restricted on this network. For automatic release search, add a DMM sponsor API key in Settings; TorBox can still be used to add releases.",
+                e
+            )
+        } catch (e: java.net.SocketTimeoutException) {
+            throw IllegalStateException(
+                "TorBox's release-search service timed out. Try again later, or add a DMM sponsor API key in Settings for DMM-powered search.",
+                e
+            )
         } finally {
             connection.disconnect()
         }
