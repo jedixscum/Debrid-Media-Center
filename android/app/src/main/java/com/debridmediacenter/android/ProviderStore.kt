@@ -375,13 +375,16 @@ class ProviderStore(context: Context) {
                 val links = info.optJSONArray("links") ?: org.json.JSONArray()
                 val videoExtensions = listOf(".mkv", ".mp4", ".m4v", ".avi", ".mov", ".webm", ".ts")
                 var selectedLink: String? = null
+                var selectedFileIndex = 0
                 for (i in 0 until files.length()) {
                     val file = files.optJSONObject(i) ?: continue
                     if (file.optInt("selected", 0) != 1) continue
                     val path = file.optString("path").lowercase()
-                    if (videoExtensions.any { path.endsWith(it) } && i < links.length()) {
-                        selectedLink = links.optString(i).takeIf { it.startsWith("http") }
-                        if (selectedLink != null) break
+                    val linkForFile = if (selectedFileIndex < links.length()) links.optString(selectedFileIndex) else ""
+                    selectedFileIndex++
+                    if (videoExtensions.any { path.endsWith(it) } && linkForFile.startsWith("http")) {
+                        selectedLink = linkForFile
+                        break
                     }
                 }
                 if (selectedLink == null) {
