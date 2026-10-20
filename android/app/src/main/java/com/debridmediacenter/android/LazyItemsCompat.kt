@@ -8,5 +8,5 @@ fun LazyListScope.items(
     count: Int,
     itemContent: @Composable LazyItemScope.(index: Int) -> Unit
 ) {
-    items(count = count, key = null, contentType = null, itemContent = itemContent)
+    repeat(count) { index -> item { itemContent(index) } }
 }
