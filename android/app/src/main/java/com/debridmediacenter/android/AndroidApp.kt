@@ -1435,8 +1435,8 @@ private fun MediaDetailsScreen(
 
         if (!item.id.matches(Regex("^tt\\d+$"))) {
             releaseStatus = "This title has no valid IMDb ID for release search."
-        } else if (!store.hasToken(ProviderStore.DMM)) {
-            releaseStatus = "Connect a DMM sponsor API key in Settings to search releases. Your debrid account can stay disconnected until you need it."
+        } else if (!store.hasToken(ProviderStore.DMM) && !store.hasToken(ProviderStore.TORBOX)) {
+            releaseStatus = "Connect TorBox for automatic release search, or add a DMM sponsor API key in Settings. Real-Debrid can stay disconnected until you need it."
         } else {
             releaseBusy = true
             releaseStatus = "Automatically searching releases…"
