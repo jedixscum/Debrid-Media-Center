@@ -1372,13 +1372,24 @@ private fun SettingsStatusRow(label: String, value: String, positive: Boolean) {
     }
 }
 
+private data class EpisodeInfo(
+    val id: String,
+    val season: Int,
+    val episode: Int,
+    val title: String,
+    val overview: String = "",
+    val released: String = "",
+    val thumbnail: String = ""
+)
+
 private data class MediaDetailsInfo(
     val overview: String = "",
     val genres: List<String> = emptyList(),
     val rating: String = "",
     val runtime: String = "",
     val cast: List<String> = emptyList(),
-    val releaseInfo: String = ""
+    val releaseInfo: String = "",
+    val episodes: List<EpisodeInfo> = emptyList()
 )
 
 private fun fetchMediaDetails(item: MediaSearchResult): MediaDetailsInfo {
@@ -1406,7 +1417,24 @@ private fun fetchMediaDetails(item: MediaSearchResult): MediaDetailsInfo {
             rating = meta.optString("imdbRating").takeIf { it.isNotBlank() && it != "null" }.orEmpty(),
             runtime = meta.optString("runtime").takeIf { it.isNotBlank() && it != "null" }.orEmpty(),
             cast = cast,
-            releaseInfo = meta.optString("releaseInfo").takeIf { it.isNotBlank() && it != "null" }.orEmpty()
+            releaseInfo = meta.optString("releaseInfo").takeIf { it.isNotBlank() && it != "null" }.orEmpty(),
+            episodes = (meta.optJSONArray("videos") ?: org.json.JSONArray()).let { videos ->
+                (0 until videos.length()).mapNotNull { index ->
+                    val video = videos.optJSONObject(index) ?: return@mapNotNull null
+                    val season = video.optInt("season", -1)
+                    val episode = video.optInt("episode", -1)
+                    if (season < 0 || episode < 1) return@mapNotNull null
+                    EpisodeInfo(
+                        id = video.optString("id").takeIf { it.isNotBlank() && it != "null" } ?: "$" + "season-$" + "episode",
+                        season = season,
+                        episode = episode,
+                        title = video.optString("title").takeIf { it.isNotBlank() && it != "null" } ?: "Episode $episode",
+                        overview = video.optString("overview").takeIf { it.isNotBlank() && it != "null" }.orEmpty(),
+                        released = video.optString("released").takeIf { it.isNotBlank() && it != "null" }?.take(10).orEmpty(),
+                        thumbnail = video.optString("thumbnail").takeIf { it.startsWith("http") }.orEmpty()
+                    )
+                }.distinctBy { it.id }.sortedWith(compareBy<EpisodeInfo> { it.season }.thenBy { it.episode })
+            }
         )
     } finally {
         connection.disconnect()
@@ -1427,6 +1455,8 @@ private fun MediaDetailsScreen(
     var releases by remember(item.id) { mutableStateOf<List<ReleaseSearchResult>>(emptyList()) }
     var releaseStatus by remember(item.id) { mutableStateOf("Preparing release search…") }
     var releaseBusy by remember(item.id) { mutableStateOf(false) }
+    var selectedSeason by remember(item.id) { mutableIntStateOf(0) }
+    var selectedEpisode by remember(item.id) { mutableStateOf<EpisodeInfo?>(null) }
     val connectedProviders = listOf(ProviderStore.REAL_DEBRID, ProviderStore.TORBOX).filter { store.hasToken(it) }
 
     LaunchedEffect(item.id) {
@@ -1528,6 +1558,72 @@ private fun MediaDetailsScreen(
                                 Text(release.title, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                 Text("${release.sizeMb.toInt()} MB · ${release.hash.take(10)}…", color = Muted, fontSize = 10.sp)
                                 Text("Connect TorBox or Real-Debrid in Settings to add this release.", color = Muted, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (item.type != "movie") {
+            item {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Seasons & Episodes", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    val episodes = details?.episodes.orEmpty()
+                    val seasons = episodes.map { it.season }.distinct().sorted()
+                    when {
+                        details == null && detailsError.isBlank() -> Text("Loading season and episode guide…", color = Muted, fontSize = 12.sp)
+                        episodes.isEmpty() -> Text(
+                            "Episode listings aren't available from the metadata source for this show.",
+                            color = Muted, fontSize = 12.sp
+                        )
+                        else -> {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                items(seasons) { season ->
+                                    FilterChip(
+                                        selected = selectedSeason == season,
+                                        onClick = { selectedSeason = season; selectedEpisode = null },
+                                        label = { Text(if (season == 0) "Specials" else "Season $season") }
+                                    )
+                                }
+                            }
+                            episodes.filter { it.season == selectedSeason }.forEach { episode ->
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().clickable { selectedEpisode = episode },
+                                    colors = CardDefaults.cardColors(containerColor = if (selectedEpisode?.id == episode.id) Panel2 else Panel),
+                                    shape = RoundedCornerShape(14.dp)
+                                ) {
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(10.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        if (episode.thumbnail.isNotBlank()) {
+                                            AsyncImage(
+                                                model = episode.thumbnail,
+                                                contentDescription = episode.title,
+                                                modifier = Modifier.width(112.dp).height(66.dp),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                        } else {
+                                            Box(Modifier.width(112.dp).height(66.dp), contentAlignment = Alignment.Center) {
+                                                Text("S" + episode.season + " · E" + episode.episode, color = Teal, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text("EPISODE " + episode.episode, color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                            Text(episode.title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                            if (episode.released.isNotBlank()) Text(episode.released, color = Muted, fontSize = 10.sp)
+                                            if (episode.overview.isNotBlank()) Text(episode.overview, color = Muted, fontSize = 11.sp, maxLines = 3)
+                                        }
+                                    }
+                                }
+                            }
+                            selectedEpisode?.let { episode ->
+                                Text(
+                                    "Selected: S" + episode.season.toString().padStart(2, '0') + "E" + episode.episode.toString().padStart(2, '0') + " · " + episode.title,
+                                    color = Teal, fontSize = 12.sp, fontWeight = FontWeight.SemiBold
+                                )
+                                Text("Release matches below are for the show. Look for this episode's S" + episode.season.toString().padStart(2, '0') + "E" + episode.episode.toString().padStart(2, '0') + " label.", color = Muted, fontSize = 11.sp)
                             }
                         }
                     }
