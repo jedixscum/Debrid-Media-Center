@@ -38,6 +38,8 @@ python -m venv .venv
 source .venv/bin/activate.fish
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
+mkdir -p ~/.local/share/applications
+cp packaging/debrid-media-center.desktop ~/.local/share/applications/
 python -m debrid_media_center
 ```
 
