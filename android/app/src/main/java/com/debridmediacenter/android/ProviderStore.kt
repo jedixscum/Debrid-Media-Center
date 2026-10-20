@@ -39,7 +39,8 @@ data class MediaSearchResult(
     val type: String,
     val title: String,
     val year: String,
-    val overview: String
+    val overview: String,
+    val posterUrl: String = ""
 )
 
 class ProviderStore(context: Context) {
@@ -297,7 +298,10 @@ class ProviderStore(context: Context) {
                     type = type,
                     title = title,
                     year = media.optInt("year", 0).takeIf { it > 0 }?.toString() ?: "",
-                    overview = media.optString("overview").takeIf { it.isNotBlank() && it != "null" }.orEmpty()
+                    overview = media.optString("overview").takeIf { it.isNotBlank() && it != "null" }.orEmpty(),
+                    posterUrl = (ids?.optString("imdb")?.takeIf { it.startsWith("tt") } ?: "").let { imdbId ->
+                        if (imdbId.isNotBlank()) "https://images.metahub.space/poster/medium/$imdbId/img" else ""
+                    }
                 ))
             }
             return results
