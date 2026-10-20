@@ -357,9 +357,6 @@ private fun HomeScreen(store: ProviderStore, collectionStore: MediaCollectionSto
 }
 
 @Composable
-private fun HomeCatalogRow
-
-@Composable
 private fun HomeHistoryRow(entries: List<WatchHistoryEntry>, onResume: (WatchHistoryEntry) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Column(Modifier.padding(horizontal = 18.dp)) {
@@ -1241,6 +1238,8 @@ private fun ProviderCard(store: ProviderStore, scope: CoroutineScope, provider: 
 private fun SettingsScreen(store: ProviderStore, scope: CoroutineScope, collectionStore: MediaCollectionStore, go: (Int) -> Unit) {
     val context = LocalContext.current
     val preferences = remember { context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE) }
+    var historyRevision by remember { mutableIntStateOf(0) }
+    val historyCount = remember(historyRevision) { collectionStore.history().size }
     var compactPosters by remember { mutableStateOf(preferences.getBoolean("compact_posters", false)) }
     var showOverview by remember { mutableStateOf(preferences.getBoolean("show_overview", true)) }
 
@@ -1299,15 +1298,15 @@ private fun SettingsScreen(store: ProviderStore, scope: CoroutineScope, collecti
         item {
             SettingsSection("PERSONAL MEDIA", "Your watchlist and viewing progress stay on this device.") {
                 SettingsStatusRow("Watchlist", "${collectionStore.watchlist().size} saved", true)
-                SettingsStatusRow("Viewing history", "${collectionStore.history().size} titles", true)
-                OutlinedButton(onClick = { collectionStore.clearHistory() }, modifier = Modifier.fillMaxWidth()) {
+                SettingsStatusRow("Viewing history", "${historyCount} titles", true)
+                OutlinedButton(onClick = { collectionStore.clearHistory(); historyRevision++ }, modifier = Modifier.fillMaxWidth()) {
                     Text("Clear viewing history")
                 }
             }
         }
         item {
             SettingsSection("QUICK ACTIONS", "Jump straight to common tasks.") {
-                OutlinedButton(onClick = { onNavigate(1) }, modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = { go(1) }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.Search, contentDescription = null)
                     Spacer(Modifier.size(8.dp))
                     Text("Discover movies and shows")
@@ -1365,9 +1364,6 @@ private fun SettingsStatusRow(label: String, value: String, positive: Boolean) {
         Text(value, color = if (positive) Teal else Muted, fontSize = 12.sp)
     }
 }
-
-@Composable
-private fun DmcPlayer(
 
 private data class MediaDetailsInfo(
     val overview: String = "",
