@@ -200,9 +200,10 @@ private fun ServicesScreen() {
                     store = store
                 )
             }
+            item { DmmKeyCard(store = store) }
             item {
                 Text(
-                    "API keys are encrypted on this device. Never share your keys or include them in screenshots.",
+                    "Provider API keys are encrypted on this device. Never share your keys or include them in screenshots.",
                     color = Muted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                 )
             }
@@ -329,6 +330,93 @@ private fun ProviderCard(title: String, subtitle: String, provider: String, stor
     }
 }
 
+
+
+@Composable
+private fun DmmKeyCard(store: ProviderStore) {
+    var apiKey by remember { mutableStateOf("") }
+    var saved by remember { mutableStateOf(store.hasToken(ProviderStore.DMM)) }
+    var status by remember { mutableStateOf(if (saved) "Sponsor key saved securely." else "Optional · not configured") }
+    var error by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Panel),
+        shape = RoundedCornerShape(22.dp)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                IconBadge(Icons.Default.Search)
+                Column(Modifier.weight(1f)) {
+                    Text("Debrid Media Manager", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Optional release search integration", color = Muted, fontSize = 12.sp)
+                }
+            }
+            Text(
+                "Release search requires your own active DMM sponsor API key. Title search and manual magnet adding work without it.",
+                color = Muted, fontSize = 12.sp
+            )
+            OutlinedTextField(
+                value = apiKey,
+                onValueChange = { apiKey = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("DMM sponsor API key") },
+                placeholder = { Text(if (saved) "Saved securely · enter to replace" else "Paste sponsor API key") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Teal,
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    focusedPlaceholderColor = Muted,
+                    unfocusedPlaceholderColor = Muted,
+                    focusedContainerColor = Panel,
+                    unfocusedContainerColor = Panel,
+                    focusedLabelColor = Teal,
+                    cursorColor = Teal,
+                    unfocusedBorderColor = Muted.copy(alpha = .45f)
+                )
+            )
+            Text(status, color = if (error) ErrorRed else Muted, fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = {
+                        if (apiKey.isBlank()) {
+                            status = "Paste your DMM sponsor API key first."
+                            error = true
+                        } else {
+                            runCatching { store.saveToken(ProviderStore.DMM, apiKey) }
+                                .onSuccess {
+                                    saved = true
+                                    apiKey = ""
+                                    status = "DMM sponsor key saved securely."
+                                    error = false
+                                }
+                                .onFailure {
+                                    status = it.message ?: "Could not save the key."
+                                    error = true
+                                }
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Background),
+                    shape = RoundedCornerShape(12.dp)
+                ) { Text("Save key", fontWeight = FontWeight.Bold) }
+                TextButton(
+                    onClick = {
+                        store.removeToken(ProviderStore.DMM)
+                        apiKey = ""
+                        saved = false
+                        status = "DMM key removed from this device."
+                        error = false
+                    },
+                    enabled = saved
+                ) { Text("Remove", color = Muted) }
+            }
+        }
+    }
+}
 
 @Composable
 private fun DiscoverScreen() {
