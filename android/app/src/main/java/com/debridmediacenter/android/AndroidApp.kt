@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,6 +26,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -54,9 +56,15 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import coil.compose.AsyncImage
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
 
 private val Bg = Color(0xFF080E14)
 private val Panel = Color(0xFF101922)
@@ -123,9 +131,9 @@ private fun Header(title: String, subtitle: String) {
 
 @Composable
 private fun HomeScreen(go: (Int) -> Unit) {
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 20.dp)) {
-        item { Header("Your media, unified.", "Search, manage and play your authorized media.") }
-        item { HomeCard("DISCOVER", "Search titles and work with releases.", Icons.Default.Search) { go(1) } }
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 20.dp)) {
+        item { Header("Your media, unified.", "Search titles, find releases and play your authorized media.") }
+        item { HomeCard("DISCOVER", "Search movies and shows with posters and release options.", Icons.Default.Search) { go(1) } }
         item { HomeCard("LIBRARY", "Manage your provider content.", Icons.Default.Folder) { go(2) } }
         item { HomeCard("SERVICES", "Connect Real-Debrid and TorBox securely.", Icons.Default.Cloud) { go(3) } }
         item { HomeCard("PLAYER", "Play a direct media URL inside the app.", Icons.Default.PlayArrow) { go(1) } }
@@ -147,19 +155,110 @@ private fun HomeCard(title: String, body: String, icon: androidx.compose.ui.grap
 }
 
 @Composable
-private fun DiscoverScreen(store: ProviderStore, scope: kotlinx.coroutines.CoroutineScope, onPlay: (String) -> Unit) {
-    var magnet by remember { mutableStateOf("") }
+private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, onPlay: (String) -> Unit) {
+    var query by remember { mutableStateOf("") }
+    var results by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }
+    var selected by remember { mutableStateOf<MediaSearchResult?>(null) }
+    var releases by remember { mutableStateOf<List<ReleaseSearchResult>>(emptyList()) }
     var provider by remember { mutableStateOf(ProviderStore.REAL_DEBRID) }
-    var status by remember { mutableStateOf("Enter a magnet to add it to your selected provider.") }
+    var quality by remember { mutableStateOf("best") }
+    var status by remember { mutableStateOf("Search for a movie or show to begin.") }
+    var magnet by remember { mutableStateOf("") }
     var directUrl by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
 
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 20.dp)) {
-        item { Header("Discover", "Add authorized content or open a direct media URL.") }
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 20.dp)) {
+        item { Header("Discover", "Search titles, inspect releases and send authorized content to your provider.") }
         item {
             Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel), shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("PROVIDER", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text("TITLE SEARCH", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(query, { query = it }, label = { Text("Movie or show") }, modifier = Modifier.weight(1f), singleLine = true)
+                        Button(
+                            enabled = !busy && query.trim().length >= 2,
+                            onClick = {
+                                busy = true
+                                status = "Searching…"
+                                selected = null
+                                releases = emptyList()
+                                scope.launch {
+                                    val result = withContext(Dispatchers.IO) { runCatching { searchTitles(query) } }
+                                    busy = false
+                                    result.onSuccess {
+                                        results = it
+                                        status = if (it.isEmpty()) "No matching titles found." else "${it.size} titles found."
+                                    }.onFailure {
+                                        results = emptyList()
+                                        status = it.message ?: "Search failed."
+                                    }
+                                }
+                            }
+                        ) { Icon(Icons.Default.Search, contentDescription = "Search") }
+                    }
+                    Text(status, color = Muted, fontSize = 11.sp)
+                }
+            }
+        }
+
+        if (selected == null) {
+            items(results, key = { it.id }) { item ->
+                MediaResultCard(item) {
+                    selected = item
+                    releases = emptyList()
+                    status = "Selected ${item.title}."
+                }
+            }
+        } else {
+            item {
+                SelectedTitleCard(selected!!) { selected = null; releases = emptyList() }
+            }
+            item {
+                Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel2), shape = RoundedCornerShape(18.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("RELEASE SEARCH", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text("Provider", fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(provider == ProviderStore.REAL_DEBRID, { provider = ProviderStore.REAL_DEBRID }, label = { Text("Real-Debrid") })
+                            FilterChip(provider == ProviderStore.TORBOX, { provider = ProviderStore.TORBOX }, label = { Text("TorBox") })
+                        }
+                        Text("Quality", fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("best", "2160p", "1080p", "720p").forEach { q ->
+                                FilterChip(quality == q, { quality = q }, label = { Text(q) })
+                            }
+                        }
+                        Button(
+                            enabled = !busy,
+                            onClick = {
+                                busy = true
+                                status = "Searching releases…"
+                                scope.launch {
+                                    val item = selected!!
+                                    val result = withContext(Dispatchers.IO) { runCatching { store.searchReleases(item.id, item.type, quality) } }
+                                    busy = false
+                                    result.onSuccess {
+                                        releases = it
+                                        status = if (it.isEmpty()) "No releases returned for this quality." else "${it.size} releases found."
+                                    }.onFailure { status = it.message ?: "Release search failed." }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Bg)
+                        ) { Text(if (busy) "Searching…" else "Find releases", fontWeight = FontWeight.Bold) }
+                        Text(status, color = Muted, fontSize = 11.sp)
+                    }
+                }
+            }
+            items(releases, key = { it.hash }) { release ->
+                ReleaseCard(release, provider, store, scope) { message -> status = message }
+            }
+        }
+
+        item {
+            Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel), shape = RoundedCornerShape(18.dp)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("MANUAL MAGNET", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(provider == ProviderStore.REAL_DEBRID, { provider = ProviderStore.REAL_DEBRID }, label = { Text("Real-Debrid") })
                         FilterChip(provider == ProviderStore.TORBOX, { provider = ProviderStore.TORBOX }, label = { Text("TorBox") })
@@ -175,13 +274,12 @@ private fun DiscoverScreen(store: ProviderStore, scope: kotlinx.coroutines.Corou
                             }
                         },
                         enabled = !busy && magnet.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Bg)
-                    ) { Text(if (busy) "Adding…" else "Add to provider", fontWeight = FontWeight.Bold) }
-                    Text(status, color = Muted, fontSize = 11.sp)
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text(if (busy) "Adding…" else "Add to provider") }
                 }
             }
         }
+
         item {
             Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel2), shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -195,9 +293,100 @@ private fun DiscoverScreen(store: ProviderStore, scope: kotlinx.coroutines.Corou
 }
 
 @Composable
+private fun MediaResultCard(item: MediaSearchResult, onClick: () -> Unit) {
+    Card(onClick = onClick, modifier = Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel), shape = RoundedCornerShape(18.dp)) {
+        Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (item.posterUrl.isNotBlank()) {
+                AsyncImage(model = item.posterUrl, contentDescription = item.title, modifier = Modifier.size(76.dp, 112.dp))
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(item.title, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Text("${item.type.uppercase()} · ${item.year.ifBlank { "Unknown year" }}", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                if (item.overview.isNotBlank()) Text(item.overview.take(180), color = Muted, fontSize = 11.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SelectedTitleCard(item: MediaSearchResult, onBack: () -> Unit) {
+    Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel), shape = RoundedCornerShape(18.dp)) {
+        Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (item.posterUrl.isNotBlank()) AsyncImage(model = item.posterUrl, contentDescription = item.title, modifier = Modifier.size(88.dp, 130.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(item.title, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                Text("${item.type.uppercase()} · ${item.year}", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text(item.overview.take(260), color = Muted, fontSize = 11.sp)
+                OutlinedButton(onClick = onBack) { Text("Back to results") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReleaseCard(release: ReleaseSearchResult, provider: String, store: ProviderStore, scope: CoroutineScope, onStatus: (String) -> Unit) {
+    var busy by remember { mutableStateOf(false) }
+    Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel), shape = RoundedCornerShape(18.dp)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text(release.title, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text("${release.sizeMb.toInt()} MB · ${release.hash.take(10)}…", color = Muted, fontSize = 10.sp)
+            Button(
+                enabled = !busy,
+                onClick = {
+                    busy = true
+                    val magnet = "magnet:?xt=urn:btih:${release.hash}&dn=${URLEncoder.encode(release.title, "UTF-8")}"
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) { runCatching { store.addMagnet(provider, magnet) } }
+                        busy = false
+                        result.onSuccess { onStatus(it) }.onFailure { onStatus(it.message ?: "Could not add release.") }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Bg)
+            ) { Text(if (busy) "Adding…" else "Add to ${if (provider == ProviderStore.REAL_DEBRID) "Real-Debrid" else "TorBox"}") }
+        }
+    }
+}
+
+private fun searchTitles(query: String): List<MediaSearchResult> {
+    val encoded = URLEncoder.encode(query.trim(), "UTF-8")
+    val connection = (URL("https://v3.sg.media-imdb.com/suggestion/x/$encoded.json").openConnection() as HttpURLConnection).apply {
+        requestMethod = "GET"
+        connectTimeout = 12000
+        readTimeout = 12000
+        setRequestProperty("Accept", "application/json")
+        setRequestProperty("User-Agent", "DebridMediaCenter/0.5")
+    }
+    try {
+        val code = connection.responseCode
+        val body = (if (code in 200..299) connection.inputStream else connection.errorStream)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        if (code !in 200..299) throw IllegalStateException("Title search failed (HTTP $code).")
+        val root = JSONObject(body)
+        val rows = root.optJSONArray("d") ?: return emptyList()
+        val output = mutableListOf<MediaSearchResult>()
+        for (i in 0 until rows.length()) {
+            val row = rows.optJSONObject(i) ?: continue
+            val id = row.optString("id").takeIf { it.startsWith("tt") } ?: continue
+            val title = row.optString("l").takeIf { it.isNotBlank() } ?: continue
+            val type = when (row.optString("q").lowercase()) {
+                "feature", "movie", "short" -> "movie"
+                else -> "tv"
+            }
+            val year = row.optString("y")
+            val poster = row.optString("i").let { raw -> if (raw.startsWith("http")) raw else "" }
+            val stars = row.optString("s")
+            output.add(MediaSearchResult(id, type, title, year, stars, poster))
+        }
+        return output.distinctBy { it.id }.take(20)
+    } finally {
+        connection.disconnect()
+    }
+}
+
+@Composable
 private fun LibraryScreen(goServices: () -> Unit) {
-    LazyColumn(contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 20.dp)) {
-        item { Header("Library", "Provider library integration is ready for the next API pass.") }
+    LazyColumn(contentPadding = PaddingValues(bottom = 20.dp)) {
+        item { Header("Library", "Provider library integration is the next playback-management pass.") }
         item {
             Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel), shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -211,16 +400,17 @@ private fun LibraryScreen(goServices: () -> Unit) {
 }
 
 @Composable
-private fun ServicesScreen(store: ProviderStore, scope: kotlinx.coroutines.CoroutineScope) {
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 20.dp)) {
+private fun ServicesScreen(store: ProviderStore, scope: CoroutineScope) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 20.dp)) {
         item { Header("Services", "API keys are encrypted with Android Keystore before storage.") }
         item { ProviderCard(store, scope, ProviderStore.REAL_DEBRID, "Real-Debrid") }
         item { ProviderCard(store, scope, ProviderStore.TORBOX, "TorBox") }
+        item { ProviderCard(store, scope, ProviderStore.DMM, "DMM sponsor API") }
     }
 }
 
 @Composable
-private fun ProviderCard(store: ProviderStore, scope: kotlinx.coroutines.CoroutineScope, provider: String, name: String) {
+private fun ProviderCard(store: ProviderStore, scope: CoroutineScope, provider: String, name: String) {
     var token by remember { mutableStateOf("") }
     var status by remember { mutableStateOf(if (store.hasToken(provider)) "Saved key" else "Not connected") }
     var busy by remember { mutableStateOf(false) }
@@ -232,14 +422,16 @@ private fun ProviderCard(store: ProviderStore, scope: kotlinx.coroutines.Corouti
                 Button(onClick = {
                     runCatching { store.saveToken(provider, token) }.onSuccess { status = "Key saved"; token = "" }.onFailure { status = it.message ?: "Save failed" }
                 }) { Text("Save") }
-                OutlinedButton(enabled = !busy, onClick = {
-                    busy = true
-                    scope.launch {
-                        val result = withContext(Dispatchers.IO) { runCatching { store.testConnection(provider) } }
-                        busy = false
-                        result.onSuccess { status = it }.onFailure { status = it.message ?: "Connection failed" }
-                    }
-                }) { Text(if (busy) "Testing…" else "Test") }
+                if (provider != ProviderStore.DMM) {
+                    OutlinedButton(enabled = !busy, onClick = {
+                        busy = true
+                        scope.launch {
+                            val result = withContext(Dispatchers.IO) { runCatching { store.testConnection(provider) } }
+                            busy = false
+                            result.onSuccess { status = it }.onFailure { status = it.message ?: "Connection failed" }
+                        }
+                    }) { Text(if (busy) "Testing…" else "Test") }
+                }
             }
             Text(status, color = Muted, fontSize = 11.sp)
         }
@@ -248,13 +440,13 @@ private fun ProviderCard(store: ProviderStore, scope: kotlinx.coroutines.Corouti
 
 @Composable
 private fun SettingsScreen() {
-    LazyColumn(contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 20.dp)) {
+    LazyColumn(contentPadding = PaddingValues(bottom = 20.dp)) {
         item { Header("Settings", "Debrid Media Center Android") }
         item {
             Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel), shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Version 0.5.0", fontWeight = FontWeight.Bold)
-                    Text("Native Jetpack Compose client with encrypted provider credentials and Media3 playback.", color = Muted, fontSize = 12.sp)
+                    Text("Version 0.6.0", fontWeight = FontWeight.Bold)
+                    Text("Native Jetpack Compose client with title search, posters, release discovery, encrypted provider credentials and Media3 playback.", color = Muted, fontSize = 12.sp)
                     Text("This app is designed for authorized media and your own provider accounts.", color = Muted, fontSize = 12.sp)
                 }
             }
