@@ -698,7 +698,7 @@ private fun SettingsScreen(store: ProviderStore, go: (Int) -> Unit) {
                         }
                     )
                 }
-                Divider(color = Panel2)
+                HorizontalDivider(color = Panel2)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -736,9 +736,9 @@ private fun SettingsScreen(store: ProviderStore, go: (Int) -> Unit) {
         item {
             SettingsSection("ABOUT", "Debrid Media Center for Android") {
                 SettingsStatusRow("App version", "0.7.0", true)
-                Divider(color = Panel2)
+                HorizontalDivider(color = Panel2)
                 SettingsStatusRow("Playback", "Media3 built-in player", true)
-                Divider(color = Panel2)
+                HorizontalDivider(color = Panel2)
                 SettingsStatusRow("Credential storage", "Android Keystore encryption", true)
                 Spacer(Modifier.height(4.dp))
                 Text(
