@@ -103,7 +103,7 @@ fun DebridMediaCenterApp() {
                         when (tab) {
                             0 -> HomeScreen(store) { tab = it }
                             1 -> DiscoverScreen(store, scope) { playerUrl = it }
-                            2 -> LibraryScreen { tab = 3 }
+                            2 -> LibraryScreen(store, scope, goServices = { tab = 3 }, onPlay = { playerUrl = it })
                             3 -> ServicesScreen(store, scope)
                             else -> SettingsScreen(store) { destination -> tab = destination }
                         }
@@ -847,15 +847,218 @@ private fun searchTitles(query: String): List<MediaSearchResult> {
 }
 
 @Composable
-private fun LibraryScreen(goServices: () -> Unit) {
-    LazyColumn(contentPadding = PaddingValues(bottom = 20.dp)) {
-        item { Header("Library", "Provider library integration is the next playback-management pass.") }
+private fun LibraryScreen(
+    store: ProviderStore,
+    scope: CoroutineScope,
+    goServices: () -> Unit,
+    onPlay: (String) -> Unit
+) {
+    var items by remember { mutableStateOf<List<ProviderLibraryItem>>(emptyList()) }
+    var loading by remember { mutableStateOf(false) }
+    var loaded by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
+    var notice by remember { mutableStateOf("") }
+    var playingId by remember { mutableStateOf<String?>(null) }
+
+    fun loadLibrary() {
+        if (loading) return
+        loading = true
+        error = ""
+        notice = ""
+        scope.launch {
+            val outcome = withContext(Dispatchers.IO) {
+                val connectedProviders = listOf(ProviderStore.REAL_DEBRID, ProviderStore.TORBOX)
+                    .filter { store.hasToken(it) }
+                if (connectedProviders.isEmpty()) {
+                    return@withContext Result.failure<List<ProviderLibraryItem>>(
+                        IllegalStateException("Connect Real-Debrid or TorBox in Services to load your provider library.")
+                    )
+                }
+                val combined = mutableListOf<ProviderLibraryItem>()
+                val failures = mutableListOf<String>()
+                connectedProviders.forEach { provider ->
+                    runCatching { store.fetchLibrary(provider) }
+                        .onSuccess { combined.addAll(it) }
+                        .onFailure { failures.add("${if (provider == ProviderStore.TORBOX) "TorBox" else "Real-Debrid"}: ${it.message ?: "request failed"}") }
+                }
+                if (combined.isEmpty() && failures.isNotEmpty()) {
+                    Result.failure<List<ProviderLibraryItem>>(IllegalStateException(failures.joinToString("\n")))
+                } else {
+                    Result.success(combined.toList()).also {
+                        if (failures.isNotEmpty()) error = failures.joinToString("\n")
+                    }
+                }
+            }
+            outcome.onSuccess {
+                items = it
+                loaded = true
+                if (it.isEmpty() && error.isBlank()) notice = "Your provider library is empty. Add a torrent or magnet through your provider first."
+            }.onFailure {
+                error = it.message ?: "Could not load your provider library."
+                items = emptyList()
+                loaded = true
+            }
+            loading = false
+        }
+    }
+
+    LaunchedEffect(Unit) { loadLibrary() }
+
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(bottom = 28.dp)
+    ) {
+        item { Header("Library", "Your Real-Debrid and TorBox downloads, together.") }
         item {
-            Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel), shape = RoundedCornerShape(18.dp)) {
-                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("No library loaded", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Text("Connect a provider first. Library browsing will use the same encrypted credentials stored by the app.", color = Muted, fontSize = 12.sp)
-                    OutlinedButton(onClick = goServices) { Text("Open Services") }
+            Card(
+                Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                colors = CardDefaults.cardColors(containerColor = Panel2),
+                shape = RoundedCornerShape(18.dp)
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        Modifier.size(42.dp).background(Teal.copy(alpha = 0.12f), RoundedCornerShape(14.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Folder, contentDescription = null, tint = Teal)
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(if (loading) "Syncing your library…" else "Your provider library", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text(
+                            if (loading) "Fetching items from connected services"
+                            else "${items.size} item${if (items.size == 1) "" else "s"} loaded",
+                            color = Muted, fontSize = 11.sp
+                        )
+                    }
+                    if (loading) {
+                        CircularProgressIndicator(color = Teal, modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                    } else {
+                        IconButton(onClick = { loadLibrary() }) {
+                            Icon(Icons.Default.Search, contentDescription = "Refresh library", tint = Teal)
+                        }
+                    }
+                }
+            }
+        }
+        if (!store.hasToken(ProviderStore.REAL_DEBRID) && !store.hasToken(ProviderStore.TORBOX)) {
+            item {
+                Card(
+                    Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                    colors = CardDefaults.cardColors(containerColor = Panel),
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Connect a provider", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text("Save your Real-Debrid or TorBox API key first. Once connected, this page will fetch your actual provider items.", color = Muted, fontSize = 12.sp)
+                        Button(onClick = goServices, modifier = Modifier.fillMaxWidth()) { Text("Open Services") }
+                    }
+                }
+            }
+        } else if (loading && !loaded) {
+            item {
+                Column(
+                    Modifier.fillMaxWidth().padding(vertical = 28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CircularProgressIndicator(color = Teal)
+                    Text("Loading items from your connected provider…", color = Muted, fontSize = 12.sp)
+                }
+            }
+        } else if (items.isEmpty() && error.isBlank()) {
+            item {
+                Card(
+                    Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                    colors = CardDefaults.cardColors(containerColor = Panel),
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(if (notice.isNotBlank()) "Nothing here yet" else "No library items found", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text(notice.ifBlank { "No items were returned by your connected providers. Pull to refresh with the refresh button above." }, color = Muted, fontSize = 12.sp)
+                        OutlinedButton(onClick = goServices) { Text("Manage providers") }
+                    }
+                }
+            }
+        }
+        if (error.isNotBlank()) {
+            item {
+                Card(
+                    Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2A1A20)),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Library sync issue", color = Color(0xFFFFB4AB), fontWeight = FontWeight.Bold)
+                        Text(error, color = Color(0xFFFFDAD5), fontSize = 12.sp, lineHeight = 17.sp)
+                        OutlinedButton(onClick = { loadLibrary() }) { Text("Try again") }
+                    }
+                }
+            }
+        }
+        items(items, key = { "${it.provider}:${it.id}:${it.title}" }) { item ->
+            var playBusy by remember(item.id) { mutableStateOf(false) }
+            Card(
+                Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                colors = CardDefaults.cardColors(containerColor = Panel),
+                shape = RoundedCornerShape(18.dp)
+            ) {
+                Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Box(
+                            Modifier.size(38.dp).background(Teal.copy(alpha = 0.12f), RoundedCornerShape(12.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Movie, contentDescription = null, tint = Teal)
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(item.title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(
+                                "${if (item.provider == ProviderStore.TORBOX) "TORBOX" else "REAL-DEBRID"} · ${item.status.replace('_', ' ').uppercase()}",
+                                color = Teal, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.7.sp
+                            )
+                        }
+                        Text("${item.progress}%", color = Muted, fontSize = 11.sp)
+                    }
+                    androidx.compose.material3.LinearProgressIndicator(
+                        progress = { item.progress.coerceIn(0, 100) / 100f },
+                        modifier = Modifier.fillMaxWidth().height(4.dp),
+                        color = Teal,
+                        trackColor = Panel2
+                    )
+                    val ready = item.status.equals("completed", true) ||
+                        item.status.equals("downloaded", true) ||
+                        item.status.equals("cached", true) ||
+                        item.progress >= 100
+                    if (ready && item.id.isNotBlank()) {
+                        Button(
+                            enabled = !playBusy,
+                            onClick = {
+                                playBusy = true
+                                playingId = item.id
+                                scope.launch {
+                                    val result = withContext(Dispatchers.IO) {
+                                        runCatching { store.resolvePlaybackUrl(item.provider, item.id) }
+                                    }
+                                    playBusy = false
+                                    playingId = null
+                                    result.onSuccess { onPlay(it) }
+                                        .onFailure { error = it.message ?: "Could not prepare playback for this item." }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Bg)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null)
+                            Spacer(Modifier.size(6.dp))
+                            Text(if (playBusy || playingId == item.id) "Preparing playback…" else "Play in app")
+                        }
+                    } else {
+                        Text("Playback will be available when this item is ready.", color = Muted, fontSize = 11.sp)
+                    }
                 }
             }
         }
