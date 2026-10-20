@@ -5,13 +5,15 @@ Debrid Media Center is a standalone project with a native Qt Quick Linux desktop
 ## Current functionality
 
 ### Native Linux desktop
-- Dark, teal-accented Qt Quick interface with Overview, Discover, Movies, TV Shows, Favorites, provider pages, Transfers/Library, Settings, and Player.
+- Dark, teal-accented Qt Quick interface with Overview, Discover, Movies, TV Shows, Favorites, provider pages, Transfers/Library, Zurg & Mounts, Health & Logs, Settings, and Player.
 - Movie and TV title search through Debrid Media Manager's public Trakt search endpoint, including poster art when a title has an IMDb ID and a poster is available.
 - Optional release search through DMM's Zurg release endpoint. This endpoint requires the user's own **active DMM sponsor API key** and DMM's release index to contain results.
 - Add a selected release or a manually supplied magnet to Real-Debrid or TorBox.
 - Test Real-Debrid and TorBox credentials, refresh provider libraries, and resolve supported direct playback links.
 - Embedded Qt Multimedia playback for media URLs supported by the installed Qt Multimedia backend.
 - Favorites persist in local Qt settings. Provider secrets are stored through the operating-system keyring.
+- User-systemd controls for configurable Zurg/rclone services, including start/stop/restart and status.
+- rclone mount/unmount controls with a configurable remote and mount point, plus system health and recent journal logs.
 
 ### Native Android
 - Home, Discover, Library, Services, and Settings tabs.
@@ -20,12 +22,13 @@ Debrid Media Center is a standalone project with a native Qt Quick Linux desktop
 - Manual magnet submission, TorBox cached availability checks, provider library refresh, and in-app Media3 playback for supported files.
 - Provider credentials encrypted using Android Keystore-backed AES/GCM.
 
-## Known limitations
+## Important provider notes
 
 - DMM release search requires an active sponsor key and an available result in DMM's Zurg-backed index. It is not an unrestricted general-purpose torrent indexer. Manual magnet adding is available without this integration.
 - Real-Debrid does not provide the same instant-cache-check capability as TorBox in this app; the Android UI explains this instead of reporting a guessed cache result.
 - Playback requires a completed item with a supported direct video link. Some codecs, containers, subtitles, multi-file releases, or provider states may not be playable yet.
-- Zurg/rclone service lifecycle management is not implemented yet. The desktop page is intentionally informational and does not start, stop, or modify local services.
+- The desktop Zurg/rclone controls operate only on the **current user's systemd session** and do not use sudo or silently modify privileged system services. Configure the actual service names used by your installation.
+- rclone mounting requires a working rclone installation, an existing configured rclone remote, FUSE support, and a writable mount point.
 - The desktop CI smoke test validates Python compilation and Qt Quick loading; it does not replace testing with real provider accounts and media files.
 
 ## Run on CachyOS / Arch Linux (Fish shell)
