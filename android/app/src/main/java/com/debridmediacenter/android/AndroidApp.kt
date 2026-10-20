@@ -19,6 +19,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -32,12 +34,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -162,134 +167,202 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, onPlay: 
     var releases by remember { mutableStateOf<List<ReleaseSearchResult>>(emptyList()) }
     var provider by remember { mutableStateOf(ProviderStore.REAL_DEBRID) }
     var quality by remember { mutableStateOf("best") }
-    var status by remember { mutableStateOf("Search for a movie or show to begin.") }
+    var status by remember { mutableStateOf("") }
     var magnet by remember { mutableStateOf("") }
     var directUrl by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var activeTool by remember { mutableStateOf<String?>(null) }
+    var contentType by remember { mutableStateOf("movie") }
+    var recent by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }
+    var recentBusy by remember { mutableStateOf(true) }
 
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 20.dp)) {
-        item { Header("Discover", "Search titles, inspect releases and send authorized content to your provider.") }
+    LaunchedEffect(contentType) {
+        recentBusy = true
+        val fetched = withContext(Dispatchers.IO) { runCatching { fetchRecentTitles(contentType) } }
+        fetched.onSuccess { recent = it }
+            .onFailure { status = it.message ?: "Couldn't load recent titles." }
+        recentBusy = false
+    }
+
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+        item { Header("Discover", "Find something worth watching.") }
         item {
-            Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel), shape = RoundedCornerShape(18.dp)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("TITLE SEARCH", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(query, { query = it }, label = { Text("Movie or show") }, modifier = Modifier.weight(1f), singleLine = true)
-                        Button(
-                            enabled = !busy && query.trim().length >= 2,
-                            onClick = {
-                                busy = true
-                                status = "Searching…"
-                                selected = null
-                                releases = emptyList()
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ToolIcon("Search", Icons.Default.Search, activeTool == "search", Modifier.weight(1f)) { activeTool = if (activeTool == "search") null else "search" }
+                ToolIcon("Magnet", Icons.Default.Link, activeTool == "magnet", Modifier.weight(1f)) { activeTool = if (activeTool == "magnet") null else "magnet" }
+                ToolIcon("Player", Icons.Default.PlayArrow, activeTool == "player", Modifier.weight(1f)) { activeTool = if (activeTool == "player") null else "player" }
+            }
+        }
+        if (activeTool == "search") {
+            item {
+                Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel), shape = RoundedCornerShape(18.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("SEARCH TITLES", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(query, { query = it }, label = { Text("Movie or show") }, modifier = Modifier.weight(1f), singleLine = true)
+                            Button(enabled = !busy && query.trim().length >= 2, onClick = {
+                                busy = true; status = "Searching…"; selected = null; releases = emptyList()
                                 scope.launch {
                                     val result = withContext(Dispatchers.IO) { runCatching { searchTitles(query) } }
                                     busy = false
-                                    result.onSuccess {
-                                        results = it
-                                        status = if (it.isEmpty()) "No matching titles found." else "${it.size} titles found."
-                                    }.onFailure {
-                                        results = emptyList()
-                                        status = it.message ?: "Search failed."
-                                    }
+                                    result.onSuccess { results = it; status = if (it.isEmpty()) "No matching titles found." else "${it.size} titles found." }
+                                        .onFailure { results = emptyList(); status = it.message ?: "Search failed." }
                                 }
-                            }
-                        ) { Icon(Icons.Default.Search, contentDescription = "Search") }
+                            }) { Icon(Icons.Default.Search, contentDescription = "Search") }
+                        }
+                        if (status.isNotBlank()) Text(status, color = Muted, fontSize = 11.sp)
                     }
-                    Text(status, color = Muted, fontSize = 11.sp)
                 }
             }
-        }
-
-        if (selected == null) {
-            items(results, key = { it.id }) { item ->
-                MediaResultCard(item) {
-                    selected = item
-                    releases = emptyList()
-                    status = "Selected ${item.title}."
-                }
-            }
-        } else {
-            item {
-                SelectedTitleCard(selected!!) { selected = null; releases = emptyList() }
-            }
-            item {
-                Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel2), shape = RoundedCornerShape(18.dp)) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("RELEASE SEARCH", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        Text("Provider", fontWeight = FontWeight.Bold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(provider == ProviderStore.REAL_DEBRID, { provider = ProviderStore.REAL_DEBRID }, label = { Text("Real-Debrid") })
-                            FilterChip(provider == ProviderStore.TORBOX, { provider = ProviderStore.TORBOX }, label = { Text("TorBox") })
-                        }
-                        Text("Quality", fontWeight = FontWeight.Bold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("best", "2160p", "1080p", "720p").forEach { q ->
-                                FilterChip(quality == q, { quality = q }, label = { Text(q) })
+            if (selected == null) {
+                items(results, key = { it.id }) { item -> MediaResultCard(item) {
+                    selected = item; releases = emptyList(); status = "Selected ${item.title}."
+                } }
+            } else {
+                item { SelectedTitleCard(selected!!) { selected = null; releases = emptyList() } }
+                item {
+                    Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel2), shape = RoundedCornerShape(18.dp)) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("RELEASE SEARCH", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(provider == ProviderStore.REAL_DEBRID, { provider = ProviderStore.REAL_DEBRID }, label = { Text("Real-Debrid") })
+                                FilterChip(provider == ProviderStore.TORBOX, { provider = ProviderStore.TORBOX }, label = { Text("TorBox") })
                             }
-                        }
-                        Button(
-                            enabled = !busy,
-                            onClick = {
-                                busy = true
-                                status = "Searching releases…"
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("best", "2160p", "1080p", "720p").forEach { q -> FilterChip(quality == q, { quality = q }, label = { Text(q) }) }
+                            }
+                            Button(enabled = !busy, onClick = {
+                                busy = true; status = "Searching releases…"
                                 scope.launch {
                                     val item = selected!!
                                     val result = withContext(Dispatchers.IO) { runCatching { store.searchReleases(item.id, item.type, quality) } }
                                     busy = false
-                                    result.onSuccess {
-                                        releases = it
-                                        status = if (it.isEmpty()) "No releases returned for this quality." else "${it.size} releases found."
-                                    }.onFailure { status = it.message ?: "Release search failed." }
+                                    result.onSuccess { releases = it; status = if (it.isEmpty()) "No releases returned." else "${it.size} releases found." }
+                                        .onFailure { status = it.message ?: "Release search failed." }
                                 }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Bg)
-                        ) { Text(if (busy) "Searching…" else "Find releases", fontWeight = FontWeight.Bold) }
-                        Text(status, color = Muted, fontSize = 11.sp)
+                            }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Bg)) {
+                                Text(if (busy) "Searching…" else "Find releases", fontWeight = FontWeight.Bold)
+                            }
+                            Text(status, color = Muted, fontSize = 11.sp)
+                        }
                     }
                 }
+                items(releases, key = { it.hash }) { release -> ReleaseCard(release, provider, store, scope) { status = it } }
             }
-            items(releases, key = { it.hash }) { release ->
-                ReleaseCard(release, provider, store, scope) { message -> status = message }
-            }
-        }
-
-        item {
-            Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel), shape = RoundedCornerShape(18.dp)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("MANUAL MAGNET", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(provider == ProviderStore.REAL_DEBRID, { provider = ProviderStore.REAL_DEBRID }, label = { Text("Real-Debrid") })
-                        FilterChip(provider == ProviderStore.TORBOX, { provider = ProviderStore.TORBOX }, label = { Text("TorBox") })
-                    }
-                    OutlinedTextField(magnet, { magnet = it }, label = { Text("Magnet link") }, placeholder = { Text("magnet:?xt=urn:btih:…") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    Button(
-                        onClick = {
+        } else if (activeTool == "magnet") {
+            item {
+                Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel), shape = RoundedCornerShape(18.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("ADD A MAGNET", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(provider == ProviderStore.REAL_DEBRID, { provider = ProviderStore.REAL_DEBRID }, label = { Text("Real-Debrid") })
+                            FilterChip(provider == ProviderStore.TORBOX, { provider = ProviderStore.TORBOX }, label = { Text("TorBox") })
+                        }
+                        OutlinedTextField(magnet, { magnet = it }, label = { Text("Magnet link") }, placeholder = { Text("magnet:?xt=urn:btih:…") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        Button(onClick = {
                             busy = true
                             scope.launch {
                                 val result = withContext(Dispatchers.IO) { runCatching { store.addMagnet(provider, magnet) } }
                                 busy = false
                                 result.onSuccess { status = it; magnet = "" }.onFailure { status = it.message ?: "Could not add magnet." }
                             }
-                        },
-                        enabled = !busy && magnet.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text(if (busy) "Adding…" else "Add to provider") }
+                        }, enabled = !busy && magnet.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Adding…" else "Add to provider") }
+                        if (status.isNotBlank()) Text(status, color = Muted, fontSize = 11.sp)
+                    }
+                }
+            }
+        } else if (activeTool == "player") {
+            item {
+                Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel2), shape = RoundedCornerShape(18.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("BUILT-IN PLAYER", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        OutlinedTextField(directUrl, { directUrl = it }, label = { Text("Direct media URL") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        Button(onClick = { onPlay(directUrl.trim()) }, enabled = directUrl.startsWith("http", true), modifier = Modifier.fillMaxWidth()) { Text("Play") }
+                    }
                 }
             }
         }
 
         item {
-            Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel2), shape = RoundedCornerShape(18.dp)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("BUILT-IN PLAYER", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    OutlinedTextField(directUrl, { directUrl = it }, label = { Text("Direct media URL") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    Button(onClick = { onPlay(directUrl.trim()) }, enabled = directUrl.startsWith("http", true), modifier = Modifier.fillMaxWidth()) { Text("Play") }
+            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Discover what's new", fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                Text("Recently released movies and shows", color = Muted, fontSize = 12.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(contentType == "movie", { contentType = "movie" }, label = { Text("Movies") })
+                    FilterChip(contentType == "series", { contentType = "series" }, label = { Text("TV Shows") })
+                }
+            }
+        }
+        if (recentBusy) {
+            item { BoxLoading() }
+        } else if (recent.isEmpty()) {
+            item {
+                Text("Recent titles couldn't be loaded. Check your internet connection and try again.", color = Muted, modifier = Modifier.padding(horizontal = 20.dp))
+            }
+        } else {
+            items(recent, key = { "recent-${it.id}" }) { item ->
+                MediaResultCard(item) {
+                    selected = item
+                    query = item.title
+                    activeTool = "search"
+                    releases = emptyList()
+                    status = "Selected ${item.title}."
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ToolIcon(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Card(onClick = onClick, modifier = modifier, colors = CardDefaults.cardColors(containerColor = if (selected) Panel2 else Panel), shape = RoundedCornerShape(16.dp)) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 13.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Icon(icon, contentDescription = label, tint = if (selected) Teal else Color.White, modifier = Modifier.size(24.dp))
+            Text(label, color = if (selected) Teal else Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
+private fun BoxLoading() {
+    Row(Modifier.fillMaxWidth().padding(24.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+        CircularProgressIndicator(color = Teal, modifier = Modifier.size(24.dp))
+        Spacer(Modifier.size(10.dp))
+        Text("Loading recent titles…", color = Muted, fontSize = 12.sp)
+    }
+}
+
+private fun fetchRecentTitles(type: String): List<MediaSearchResult> {
+    val endpoint = "https://v3-cinemeta.strem.io/catalog/$type/lastVideos.json"
+    val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+        requestMethod = "GET"
+        connectTimeout = 12000
+        readTimeout = 15000
+        setRequestProperty("Accept", "application/json")
+        setRequestProperty("User-Agent", "DebridMediaCenter/0.6")
+    }
+    try {
+        val code = connection.responseCode
+        val body = (if (code in 200..299) connection.inputStream else connection.errorStream)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        if (code !in 200..299) throw IllegalStateException("Recent-title service returned HTTP $code.")
+        val metas = JSONObject(body).optJSONArray("metas") ?: return emptyList()
+        val output = mutableListOf<MediaSearchResult>()
+        for (i in 0 until metas.length()) {
+            val row = metas.optJSONObject(i) ?: continue
+            val id = row.optString("imdb_id").takeIf { it.startsWith("tt") }
+                ?: row.optString("id").takeIf { it.startsWith("tt") } ?: continue
+            val title = row.optString("name").takeIf { it.isNotBlank() } ?: continue
+            val year = row.optString("releaseInfo").ifBlank { row.optString("year") }
+            val poster = row.optString("poster").takeIf { it.startsWith("http") }.orEmpty()
+            val overview = row.optString("description")
+            output.add(MediaSearchResult(id, if (type == "movie") "movie" else "tv", title, year, overview, poster))
+        }
+        return output.distinctBy { it.id }.take(24)
+    } finally { connection.disconnect() }
 }
 
 @Composable
