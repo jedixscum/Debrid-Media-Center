@@ -36,6 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -664,7 +665,7 @@ private fun SettingsScreen(store: ProviderStore, go: (Int) -> Unit) {
         item {
             SettingsSection("PROVIDER CONNECTIONS", "Your API keys are encrypted using Android Keystore.") {
                 SettingsStatusRow("Real-Debrid", if (store.hasToken(ProviderStore.REAL_DEBRID)) "API key saved" else "Not connected", store.hasToken(ProviderStore.REAL_DEBRID))
-                Divider(color = Panel2)
+                HorizontalDivider(color = Panel2)
                 SettingsStatusRow("TorBox", if (store.hasToken(ProviderStore.TORBOX)) "API key saved" else "Not connected", store.hasToken(ProviderStore.TORBOX))
                 Spacer(Modifier.height(4.dp))
                 Button(
@@ -751,7 +752,7 @@ private fun SettingsScreen(store: ProviderStore, go: (Int) -> Unit) {
 }
 
 @Composable
-private fun SettingsSection(title: String, description: String, content: @Composable Column.() -> Unit) {
+private fun SettingsSection(title: String, description: String, content: @Composable () -> Unit) {
     Card(
         Modifier.fillMaxWidth().padding(horizontal = 18.dp),
         colors = CardDefaults.cardColors(containerColor = Panel),
