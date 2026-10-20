@@ -56,6 +56,11 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.runtime.DisposableEffect
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -76,14 +81,18 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun DebridApp() {
     var selectedTab by remember { mutableIntStateOf(0) }
+    var playbackUrl by remember { mutableStateOf("") }
+    var playbackTitle by remember { mutableStateOf("") }
     MaterialTheme {
         Surface(Modifier.fillMaxSize(), color = Background, contentColor = Color.White) {
-            Column(Modifier.fillMaxSize()) {
+            if (playbackUrl.isNotBlank()) {
+                PlayerScreen(title = playbackTitle, url = playbackUrl, onClose = { playbackUrl = ""; playbackTitle = "" })
+            } else Column(Modifier.fillMaxSize()) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     when (selectedTab) {
                         0 -> HomeScreen(onServices = { selectedTab = 3 }, onDiscover = { selectedTab = 1 }, onLibrary = { selectedTab = 2 })
                         1 -> DiscoverScreen()
-                        2 -> LibraryScreen()
+                        2 -> LibraryScreen(onPlay = { title, url -> playbackTitle = title; playbackUrl = url })
                         3 -> ServicesScreen()
                         else -> PlaceholderScreen("Settings", "Secure provider credentials are stored on this device using Android Keystore encryption.", Icons.Default.Settings)
                     }
@@ -554,7 +563,7 @@ private fun DiscoverScreen() {
 }
 
 @Composable
-private fun LibraryScreen() {
+private fun LibraryScreen(onPlay: (String, String) -> Unit) {
     val context = LocalContext.current
     val store = remember { ProviderStore(context.applicationContext) }
     val scope = rememberCoroutineScope()
@@ -564,6 +573,7 @@ private fun LibraryScreen() {
     var status by remember { mutableStateOf("Choose a provider and load its items.") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf(false) }
+    var resolvingPlaybackId by remember { mutableStateOf("") }
 
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(start = 22.dp, end = 22.dp, top = 28.dp, bottom = 12.dp)) {
@@ -665,16 +675,99 @@ private fun LibraryScreen() {
             items(visibleItems.size) { index ->
                 val item = visibleItems[index]
                 Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(16.dp)) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(item.title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                         Text(item.status + " · " + item.progress + "% · ID " + item.id, color = Muted, fontSize = 12.sp)
                         Box(Modifier.fillMaxWidth().height(4.dp).background(Background, RoundedCornerShape(3.dp))) {
                             Box(Modifier.fillMaxWidth(item.progress / 100f).height(4.dp).background(Teal, RoundedCornerShape(3.dp)))
                         }
+                        Button(
+                            onClick = {
+                                if (!store.hasToken(provider)) {
+                                    status = "Connect this provider in Services first."
+                                    error = true
+                                } else {
+                                    resolvingPlaybackId = item.id
+                                    status = "Preparing playback for " + item.title + "…"
+                                    error = false
+                                    scope.launch {
+                                        val result = withContext(Dispatchers.IO) {
+                                            runCatching { store.resolvePlaybackUrl(provider, item.id) }
+                                        }
+                                        resolvingPlaybackId = ""
+                                        result.onSuccess {
+                                            status = "Opening " + item.title
+                                            onPlay(item.title, it)
+                                        }.onFailure {
+                                            status = it.message ?: "Could not prepare playback."
+                                            error = true
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = item.id.isNotBlank() && resolvingPlaybackId.isBlank(),
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Background),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            if (resolvingPlaybackId == item.id) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Background)
+                                Spacer(Modifier.size(8.dp))
+                            }
+                            Text(if (resolvingPlaybackId == item.id) "Preparing…" else "Play in app", fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+
+@Composable
+private fun PlayerScreen(title: String, url: String, onClose: () -> Unit) {
+    val context = LocalContext.current
+    val player = remember(url) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(url))
+            prepare()
+            playWhenReady = true
+        }
+    }
+    DisposableEffect(player) {
+        onDispose { player.release() }
+    }
+    Column(Modifier.fillMaxSize().background(Background)) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            TextButton(onClick = onClose) { Text("← Back", color = Teal) }
+            Column(Modifier.weight(1f)) {
+                Text("NOW PLAYING", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+                Text(title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
+            }
+        }
+        Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+            AndroidView(
+                modifier = Modifier.fillMaxWidth().height(280.dp),
+                factory = { viewContext ->
+                    PlayerView(viewContext).apply {
+                        this.player = player
+                        useController = true
+                        setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                    }
+                },
+                update = { it.player = player }
+            )
+        }
+        Text(
+            "Playback uses a temporary link supplied by your debrid provider. If a file won't play, try another video file or check that the item has finished processing.",
+            color = Muted,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp)
+        )
     }
 }
 
