@@ -10,6 +10,7 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 
 from debrid_media_center.backend import Backend
+from debrid_media_center.system_backend import SystemBackend
 
 
 def main() -> int:
@@ -19,7 +20,9 @@ def main() -> int:
 
     engine = QQmlApplicationEngine()
     backend = Backend()
+    system_backend = SystemBackend()
     engine.rootContext().setContextProperty("backend", backend)
+    engine.rootContext().setContextProperty("systemBackend", system_backend)
     qml_file = Path(__file__).parent / "qml" / "Main.qml"
     engine.load(QUrl.fromLocalFile(str(qml_file)))
     if not engine.rootObjects():
