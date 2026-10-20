@@ -8,7 +8,7 @@ from urllib.parse import quote
 
 import keyring
 import requests
-from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtCore import QObject, QSettings, Signal, Slot
 
 KEYRING_SERVICE = "DebridMediaCenter"
 DMM_BASE = "https://debridmediamanager.com"
@@ -28,7 +28,9 @@ class Backend(QObject):
 
     def __init__(self) -> None:
         super().__init__()
-        self._favorites: list[dict] = []
+        self._settings = QSettings("DebridMediaCenter", "DebridMediaCenter")
+        stored = self._settings.value("favorites", [])
+        self._favorites: list[dict] = [dict(item) for item in stored if isinstance(item, dict)] if isinstance(stored, list) else []
 
     @staticmethod
     def _token(provider: str) -> str:
@@ -313,6 +315,7 @@ class Backend(QObject):
             self._favorites.remove(match)
         else:
             self._favorites.append({"title": title, "imdb": imdb_id})
+        self._settings.setValue("favorites", self._favorites)
         self.favoritesChanged.emit(list(self._favorites))
 
     @Slot(result="QVariantList")
