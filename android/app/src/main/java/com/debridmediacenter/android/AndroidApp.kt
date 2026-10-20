@@ -242,29 +242,6 @@ private fun HomeScreen(store: ProviderStore, go: (Int) -> Unit) {
             }
         }
         item {
-            Column(Modifier.padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Your shortcuts", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    HomeActionTile("Discover", "Find a title", Icons.Default.Search, Modifier.weight(1f)) { go(1) }
-                    HomeActionTile("My library", "Your collection", Icons.Default.Folder, Modifier.weight(1f)) { go(2) }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    HomeActionTile(
-                        "Real-Debrid",
-                        if (store.hasToken(ProviderStore.REAL_DEBRID)) "Connected key saved" else "Connect account",
-                        Icons.Default.Cloud,
-                        Modifier.weight(1f)
-                    ) { go(3) }
-                    HomeActionTile(
-                        "TorBox",
-                        if (store.hasToken(ProviderStore.TORBOX)) "Connected key saved" else "Connect account",
-                        Icons.Default.Link,
-                        Modifier.weight(1f)
-                    ) { go(3) }
-                }
-            }
-        }
-        item {
             HomeCatalogRow("Popular movies", movies, loading) { go(1) }
         }
         item {
@@ -314,30 +291,6 @@ private fun HomeScreen(store: ProviderStore, go: (Int) -> Unit) {
                 Spacer(Modifier.size(8.dp))
                 Text("Search all movies and shows")
             }
-        }
-    }
-}
-
-@Composable
-private fun HomeActionTile(
-    title: String,
-    subtitle: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    Card(
-        onClick = onClick,
-        modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = Panel),
-        shape = RoundedCornerShape(18.dp)
-    ) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            Box(Modifier.size(36.dp).background(Teal.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-                Icon(icon, contentDescription = null, tint = Teal, modifier = Modifier.size(20.dp))
-            }
-            Text(title, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-            Text(subtitle, color = Muted, fontSize = 10.sp, lineHeight = 14.sp)
         }
     }
 }
