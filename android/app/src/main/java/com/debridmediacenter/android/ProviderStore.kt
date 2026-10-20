@@ -257,16 +257,20 @@ class ProviderStore(context: Context) {
 
 
     /**
-     * DMM release search requires the user's own active sponsor API key.
-     * Title metadata search remains available without that optional integration.
+     * Search release hashes using DMM when the user has a sponsor key.
+     * When TorBox is connected and no DMM key is configured, fall back to
+     * TorBox's public IMDb-based search API so TorBox-only users can discover releases.
      */
     fun searchReleases(imdbId: String, mediaType: String, quality: String = "best"): List<ReleaseSearchResult> {
-        val apiKey = readToken(DMM)?.trim().orEmpty()
-        require(apiKey.isNotEmpty()) {
-            "Connect your optional Debrid Media Manager sponsor API key in Services to search releases."
-        }
         require(imdbId.matches(Regex("^tt\\d+$"))) { "Select a title with a valid IMDb ID first." }
         require(mediaType == "movie" || mediaType == "tv") { "Unsupported media type." }
+        val apiKey = readToken(DMM)?.trim().orEmpty()
+        if (apiKey.isEmpty()) {
+            require(hasToken(TORBOX)) {
+                "Connect TorBox to search releases automatically, or add a DMM sponsor API key in Settings to use DMM release search."
+            }
+            return searchTorBoxReleases(imdbId, quality)
+        }
         val connection = (URL("https://debridmediamanager.com/api/zurg/search-torrents").openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             doOutput = true
@@ -316,6 +320,63 @@ class ProviderStore(context: Context) {
                 }
             }
             return results.distinctBy { it.hash }.sortedByDescending { it.sizeMb }
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun searchTorBoxReleases(imdbId: String, quality: String): List<ReleaseSearchResult> {
+        val endpoint = URL("https://search-api.torbox.app/torrents/imdb:$imdbId")
+        val connection = (endpoint.openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 15000
+            readTimeout = 25000
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("User-Agent", "DebridMediaCenter/0.6")
+        }
+        try {
+            val code = connection.responseCode
+            val body = (if (code in 200..299) connection.inputStream else connection.errorStream)
+                ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            if (code !in 200..299) throw IllegalStateException("TorBox release search failed (HTTP $code).")
+            val root = runCatching { JSONObject(body) }.getOrNull()
+                ?: throw IllegalStateException("TorBox returned an unreadable release-search response.")
+            if (root.has("success") && !root.optBoolean("success", true)) {
+                throw IllegalStateException(root.optString("detail").ifBlank { "TorBox could not find releases for this title." })
+            }
+            val results = mutableListOf<ReleaseSearchResult>()
+            fun scan(value: Any?) {
+                when (value) {
+                    is org.json.JSONArray -> for (i in 0 until value.length()) scan(value.opt(i))
+                    is JSONObject -> {
+                        val title = sequenceOf("title", "name", "release", "filename")
+                            .map { value.optString(it) }.firstOrNull { it.isNotBlank() && it != "null" }.orEmpty()
+                        val rawHash = sequenceOf("hash", "infoHash", "info_hash", "btih", "magnet")
+                            .map { value.optString(it) }.firstOrNull { it.isNotBlank() && it != "null" }.orEmpty()
+                        val hash = Regex("(?i)(?:btih:)?([a-f0-9]{40})").find(rawHash)?.groupValues?.get(1)?.lowercase()
+                        if (title.isNotBlank() && hash != null) {
+                            val rawSize = sequenceOf("size", "sizeBytes", "size_bytes", "fileSize", "filesize")
+                                .map { value.optDouble(it, Double.NaN) }.firstOrNull { it.isFinite() && it > 0 } ?: 0.0
+                            val sizeMb = if (rawSize > 1024 * 1024) rawSize / (1024.0 * 1024.0) else rawSize
+                            results.add(ReleaseSearchResult(title, hash, sizeMb))
+                        }
+                        val keys = value.keys()
+                        while (keys.hasNext()) {
+                            val key = keys.next()
+                            val child = value.opt(key)
+                            if (child is JSONObject || child is org.json.JSONArray) scan(child)
+                        }
+                    }
+                }
+            }
+            scan(root)
+            val unique = results.distinctBy { it.hash }
+            val filtered = if (quality == "best") unique else unique.filter { release ->
+                release.title.contains(quality, ignoreCase = true) ||
+                    (quality == "2160p" && release.title.contains("4k", ignoreCase = true))
+            }
+            return (filtered.ifEmpty { if (quality == "best") unique else emptyList() })
+                .sortedByDescending { it.sizeMb }
         } finally {
             connection.disconnect()
         }
