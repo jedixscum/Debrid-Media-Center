@@ -104,8 +104,7 @@ fun DebridMediaCenterApp() {
                             0 -> HomeScreen(store) { tab = it }
                             1 -> DiscoverScreen(store, scope) { playerUrl = it }
                             2 -> LibraryScreen(store, scope, goServices = { tab = 3 }, onPlay = { playerUrl = it })
-                            3 -> ServicesScreen(store, scope)
-                            else -> SettingsScreen(store) { destination -> tab = destination }
+                            else -> SettingsScreen(store, scope) { destination -> tab = destination }
                         }
                     }
                     NavigationBar(containerColor = Panel) {
@@ -113,7 +112,6 @@ fun DebridMediaCenterApp() {
                             "Home" to Icons.Default.Home,
                             "Discover" to Icons.Default.Search,
                             "Library" to Icons.Default.Folder,
-                            "Services" to Icons.Default.Cloud,
                             "Settings" to Icons.Default.Settings
                         )
                         nav.forEachIndexed { index, item ->
@@ -177,7 +175,7 @@ private fun HomeScreen(store: ProviderStore, go: (Int) -> Unit) {
                         Text("Your personal cinema", color = Muted, fontSize = 11.sp)
                     }
                     Spacer(Modifier.weight(1f))
-                    IconButton(onClick = { go(4) }) {
+                    IconButton(onClick = { go(3) }) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Muted)
                     }
                 }
@@ -871,7 +869,7 @@ private fun LibraryScreen(
                     .filter { store.hasToken(it) }
                 if (connectedProviders.isEmpty()) {
                     return@withContext Result.failure<List<ProviderLibraryItem>>(
-                        IllegalStateException("Connect Real-Debrid or TorBox in Services to load your provider library.")
+                        IllegalStateException("Connect Real-Debrid or TorBox in Settings to load your provider library.")
                     )
                 }
                 val combined = mutableListOf<ProviderLibraryItem>()
@@ -953,8 +951,8 @@ private fun LibraryScreen(
                 ) {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("Connect a provider", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Text("Save your Real-Debrid or TorBox API key first. Once connected, this page will fetch your actual provider items.", color = Muted, fontSize = 12.sp)
-                        Button(onClick = goServices, modifier = Modifier.fillMaxWidth()) { Text("Open Services") }
+                        Text("Add your Real-Debrid or TorBox API key in Settings. Your provider items will appear here once connected.", color = Muted, fontSize = 12.sp)
+                        Button(onClick = goServices, modifier = Modifier.fillMaxWidth()) { Text("Open Settings") }
                     }
                 }
             }
@@ -1066,16 +1064,6 @@ private fun LibraryScreen(
 }
 
 @Composable
-private fun ServicesScreen(store: ProviderStore, scope: CoroutineScope) {
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 20.dp)) {
-        item { Header("Services", "API keys are encrypted with Android Keystore before storage.") }
-        item { ProviderCard(store, scope, ProviderStore.REAL_DEBRID, "Real-Debrid") }
-        item { ProviderCard(store, scope, ProviderStore.TORBOX, "TorBox") }
-        item { ProviderCard(store, scope, ProviderStore.DMM, "DMM sponsor API") }
-    }
-}
-
-@Composable
 private fun ProviderCard(store: ProviderStore, scope: CoroutineScope, provider: String, name: String) {
     var token by remember { mutableStateOf("") }
     var status by remember { mutableStateOf(if (store.hasToken(provider)) "Saved key" else "Not connected") }
@@ -1086,17 +1074,28 @@ private fun ProviderCard(store: ProviderStore, scope: CoroutineScope, provider: 
             OutlinedTextField(token, { token = it }, label = { Text("API key") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {
-                    runCatching { store.saveToken(provider, token) }.onSuccess { status = "Key saved"; token = "" }.onFailure { status = it.message ?: "Save failed" }
-                }) { Text("Save") }
+                    runCatching { store.saveToken(provider, token) }
+                        .onSuccess { status = "API key saved securely"; token = "" }
+                        .onFailure { status = it.message ?: "Save failed" }
+                }) { Text("Save key") }
                 if (provider != ProviderStore.DMM) {
                     OutlinedButton(enabled = !busy, onClick = {
                         busy = true
                         scope.launch {
-                            val result = withContext(Dispatchers.IO) { runCatching { store.testConnection(provider) } }
+                            val enteredToken = token.trim().takeIf { it.isNotEmpty() }
+                            val result = withContext(Dispatchers.IO) {
+                                runCatching { store.testConnection(provider, enteredToken) }
+                            }
                             busy = false
-                            result.onSuccess { status = it }.onFailure { status = it.message ?: "Connection failed" }
+                            result.onSuccess {
+                                if (enteredToken != null) {
+                                    runCatching { store.saveToken(provider, enteredToken) }
+                                        .onSuccess { token = "" }
+                                }
+                                status = it
+                            }.onFailure { status = it.message ?: "Connection failed" }
                         }
-                    }) { Text(if (busy) "Testing…" else "Test") }
+                    }) { Text(if (busy) "Checking…" else "Test & view account") }
                 }
             }
             Text(status, color = Muted, fontSize = 11.sp)
@@ -1105,7 +1104,7 @@ private fun ProviderCard(store: ProviderStore, scope: CoroutineScope, provider: 
 }
 
 @Composable
-private fun SettingsScreen(store: ProviderStore, go: (Int) -> Unit) {
+private fun SettingsScreen(store: ProviderStore, scope: CoroutineScope, go: (Int) -> Unit) {
     val context = LocalContext.current
     val preferences = remember { context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE) }
     var compactPosters by remember { mutableStateOf(preferences.getBoolean("compact_posters", false)) }
@@ -1117,20 +1116,10 @@ private fun SettingsScreen(store: ProviderStore, go: (Int) -> Unit) {
     ) {
         item { Header("Settings", "Make Debrid Media Center yours.") }
         item {
-            SettingsSection("PROVIDER CONNECTIONS", "Your API keys are encrypted using Android Keystore.") {
-                SettingsStatusRow("Real-Debrid", if (store.hasToken(ProviderStore.REAL_DEBRID)) "API key saved" else "Not connected", store.hasToken(ProviderStore.REAL_DEBRID))
-                HorizontalDivider(color = Panel2)
-                SettingsStatusRow("TorBox", if (store.hasToken(ProviderStore.TORBOX)) "API key saved" else "Not connected", store.hasToken(ProviderStore.TORBOX))
-                Spacer(Modifier.height(4.dp))
-                Button(
-                    onClick = { go(3) },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Bg)
-                ) {
-                    Icon(Icons.Default.Cloud, contentDescription = null)
-                    Spacer(Modifier.size(8.dp))
-                    Text("Manage provider accounts", fontWeight = FontWeight.Bold)
-                }
+            SettingsSection("PROVIDER CONNECTIONS", "Add an API key, test your account, and view premium details here. Keys are encrypted with Android Keystore.") {
+                ProviderCard(store, scope, ProviderStore.REAL_DEBRID, "Real-Debrid")
+                ProviderCard(store, scope, ProviderStore.TORBOX, "TorBox")
+                ProviderCard(store, scope, ProviderStore.DMM, "DMM sponsor API")
             }
         }
         item {
@@ -1287,12 +1276,6 @@ private fun DmcPlayer(url: String, onClose: () -> Unit) {
             factory = { PlayerView(it).apply { this.player = player; useController = true } },
             update = { it.player = player },
             modifier = Modifier.fillMaxWidth().weight(1f)
-        )
-        Text(
-            "If a link does not play, check that it is a direct, accessible media URL.",
-            color = Muted,
-            fontSize = 11.sp,
-            modifier = Modifier.fillMaxWidth().padding(12.dp)
         )
     }
 }
