@@ -627,6 +627,13 @@ private fun LibraryScreen() {
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Teal,
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    focusedPlaceholderColor = Muted,
+                    unfocusedPlaceholderColor = Muted,
+                    focusedContainerColor = Panel,
+                    unfocusedContainerColor = Panel,
+                    disabledTextColor = Muted,
                     focusedLabelColor = Teal,
                     cursorColor = Teal,
                     unfocusedBorderColor = Muted.copy(alpha = .45f)
