@@ -101,7 +101,7 @@ fun DebridMediaCenterApp() {
                             1 -> DiscoverScreen(store, scope) { playerUrl = it }
                             2 -> LibraryScreen { tab = 3 }
                             3 -> ServicesScreen(store, scope)
-                            else -> SettingsScreen()
+                            else -> SettingsScreen(store) { destination -> tab = destination }
                         }
                     }
                     NavigationBar(containerColor = Panel) {
@@ -650,18 +650,132 @@ private fun ProviderCard(store: ProviderStore, scope: CoroutineScope, provider: 
 }
 
 @Composable
-private fun SettingsScreen() {
-    LazyColumn(contentPadding = PaddingValues(bottom = 20.dp)) {
-        item { Header("Settings", "Debrid Media Center Android") }
+private fun SettingsScreen(store: ProviderStore, go: (Int) -> Unit) {
+    val context = LocalContext.current
+    val preferences = remember { context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE) }
+    var compactPosters by remember { mutableStateOf(preferences.getBoolean("compact_posters", false)) }
+    var showOverview by remember { mutableStateOf(preferences.getBoolean("show_overview", true)) }
+
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(bottom = 28.dp)
+    ) {
+        item { Header("Settings", "Make Debrid Media Center yours.") }
         item {
-            Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel), shape = RoundedCornerShape(18.dp)) {
-                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Version 0.7.0", fontWeight = FontWeight.Bold)
-                    Text("Native Jetpack Compose client with title search, posters, release discovery, encrypted provider credentials and Media3 playback.", color = Muted, fontSize = 12.sp)
-                    Text("This app is designed for authorized media and your own provider accounts.", color = Muted, fontSize = 12.sp)
+            SettingsSection("PROVIDER CONNECTIONS", "Your API keys are encrypted using Android Keystore.") {
+                SettingsStatusRow("Real-Debrid", if (store.hasToken(ProviderStore.REAL_DEBRID)) "API key saved" else "Not connected", store.hasToken(ProviderStore.REAL_DEBRID))
+                Divider(color = Panel2)
+                SettingsStatusRow("TorBox", if (store.hasToken(ProviderStore.TORBOX)) "API key saved" else "Not connected", store.hasToken(ProviderStore.TORBOX))
+                Spacer(Modifier.height(4.dp))
+                Button(
+                    onClick = { go(3) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Bg)
+                ) {
+                    Icon(Icons.Default.Cloud, contentDescription = null)
+                    Spacer(Modifier.size(8.dp))
+                    Text("Manage provider accounts", fontWeight = FontWeight.Bold)
                 }
             }
         }
+        item {
+            SettingsSection("DISCOVERY & DISPLAY", "Choose how titles are shown in the app.") {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Compact poster rows", fontWeight = FontWeight.SemiBold)
+                        Text("Prefer a denser browsing layout.", color = Muted, fontSize = 12.sp)
+                    }
+                    androidx.compose.material3.Switch(
+                        checked = compactPosters,
+                        onCheckedChange = {
+                            compactPosters = it
+                            preferences.edit().putBoolean("compact_posters", it).apply()
+                        }
+                    )
+                }
+                Divider(color = Panel2)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Show title descriptions", fontWeight = FontWeight.SemiBold)
+                        Text("Display summaries where available.", color = Muted, fontSize = 12.sp)
+                    }
+                    androidx.compose.material3.Switch(
+                        checked = showOverview,
+                        onCheckedChange = {
+                            showOverview = it
+                            preferences.edit().putBoolean("show_overview", it).apply()
+                        }
+                    )
+                }
+                Text("Display preferences are saved on this device.", color = Muted, fontSize = 11.sp)
+            }
+        }
+        item {
+            SettingsSection("QUICK ACTIONS", "Jump straight to common tasks.") {
+                OutlinedButton(onClick = { go(1) }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Search, contentDescription = null)
+                    Spacer(Modifier.size(8.dp))
+                    Text("Discover movies and shows")
+                }
+                OutlinedButton(onClick = { go(2) }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Folder, contentDescription = null)
+                    Spacer(Modifier.size(8.dp))
+                    Text("Open your library")
+                }
+            }
+        }
+        item {
+            SettingsSection("ABOUT", "Debrid Media Center for Android") {
+                SettingsStatusRow("App version", "0.7.0", true)
+                Divider(color = Panel2)
+                SettingsStatusRow("Playback", "Media3 built-in player", true)
+                Divider(color = Panel2)
+                SettingsStatusRow("Credential storage", "Android Keystore encryption", true)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Use only media and provider accounts you are authorized to access. API keys stay on this device and are stored encrypted.",
+                    color = Muted,
+                    fontSize = 12.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsSection(title: String, description: String, content: @Composable Column.() -> Unit) {
+    Card(
+        Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+        colors = CardDefaults.cardColors(containerColor = Panel),
+        shape = RoundedCornerShape(18.dp)
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(title, color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+            Text(description, color = Muted, fontSize = 12.sp)
+            content()
+        }
+    }
+}
+
+@Composable
+private fun SettingsStatusRow(label: String, value: String, positive: Boolean) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(label, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+        }
+        Text(value, color = if (positive) Teal else Muted, fontSize = 12.sp)
     }
 }
 
