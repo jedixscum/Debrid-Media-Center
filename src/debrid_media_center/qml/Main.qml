@@ -336,13 +336,14 @@ ApplicationWindow {
                                                 Layout.preferredWidth: 82; Layout.preferredHeight: 124
                                                 radius: 7; color: "#09121a"; clip: true
                                                 Image {
+                                                    id: posterImage
                                                     anchors.fill: parent
                                                     source: modelData.poster || ""
                                                     asynchronous: true
                                                     fillMode: Image.PreserveAspectCrop
                                                     visible: status === Image.Ready
                                                 }
-                                                Text { anchors.centerIn: parent; text: "DMC"; color: window.accent; font.bold: true; visible: parent.children.length > 0 && parent.children[0].status !== Image.Ready }
+                                                Text { anchors.centerIn: parent; text: "DMC"; color: window.accent; font.bold: true; visible: posterImage.status !== Image.Ready }
                                             }
                                             ColumnLayout {
                                                 Layout.fillWidth: true; spacing: 5
