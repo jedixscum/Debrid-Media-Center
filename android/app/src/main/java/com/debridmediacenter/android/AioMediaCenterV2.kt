@@ -39,7 +39,7 @@ private val V2Teal = Color(0xFF58E1CF)
 private val V2Muted = Color(0xFF91A5AE)
 
 private enum class V2Mode { HOME, DEBRID, STREAMING }
-private enum class V2Tab { HOME, SEARCH, MOVIES, TV, ADDONS }
+private enum class V2Tab { HOME, SEARCH, MOVIES, TV, CATALOGS, ADDONS }
 
 private data class V2Title(
     val id: String,
@@ -166,6 +166,7 @@ private fun V2Streaming(tab: V2Tab, onTab: (V2Tab) -> Unit, selected: V2Title?, 
                 V2Tab.SEARCH -> V2Search(onSelect)
                 V2Tab.MOVIES -> V2Catalog("movie", "Movies", onSelect)
                 V2Tab.TV -> V2Catalog("series", "TV Shows", onSelect)
+                V2Tab.CATALOGS -> V2AddonCatalogBrowser(onSelect)
                 V2Tab.ADDONS -> StremioAddonsScreen { onTab(V2Tab.HOME) }
             }
         }
@@ -176,6 +177,7 @@ private fun V2Streaming(tab: V2Tab, onTab: (V2Tab) -> Unit, selected: V2Title?, 
                     V2Tab.SEARCH to ("Search" to Icons.Default.Search),
                     V2Tab.MOVIES to ("Movies" to Icons.Default.Movie),
                     V2Tab.TV to ("TV" to Icons.Default.Tv),
+                    V2Tab.CATALOGS to ("Discover" to Icons.Default.Explore),
                     V2Tab.ADDONS to ("Add-ons" to Icons.Default.Extension)
                 ).forEach { (target, p) ->
                     NavigationBarItem(selected = tab == target, onClick = { onTab(target) }, icon = { Icon(p.second, p.first) }, label = { Text(p.first, fontSize = 9.sp) })
@@ -208,6 +210,15 @@ private fun V2Home(onSelect: (V2Title) -> Unit, onTab: (V2Tab) -> Unit) {
         item { V2TitleRow("Popular movies", movies, loading, onSelect) }
         item { V2TitleRow("Popular TV shows", shows, loading, onSelect) }
         item {
+            Card(onClick = { onTab(V2Tab.CATALOGS) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp), colors = CardDefaults.cardColors(V2Panel2), shape = RoundedCornerShape(18.dp)) {
+                Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Icon(Icons.Default.Explore, null, tint = V2Teal)
+                    Column(Modifier.weight(1f)) { Text("Discover add-on catalogs", fontWeight = FontWeight.SemiBold); Text("Browse collections from installed add-ons.", color = V2Muted, fontSize = 11.sp) }
+                    Icon(Icons.Default.ChevronRight, null, tint = V2Teal)
+                }
+            }
+        }
+        item {
             Card(onClick = { onTab(V2Tab.ADDONS) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp), colors = CardDefaults.cardColors(V2Panel), shape = RoundedCornerShape(18.dp)) {
                 Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Icon(Icons.Default.Extension, null, tint = V2Teal)
@@ -236,32 +247,109 @@ private fun V2Catalog(type: String, heading: String, onSelect: (V2Title) -> Unit
 
 @Composable
 private fun V2Search(onSelect: (V2Title) -> Unit) {
+    val context = LocalContext.current
+    val catalogClient = remember { StremioCatalogClient(context.applicationContext) }
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf(emptyList<V2Title>()) }
     var busy by remember { mutableStateOf(false) }
     var searched by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf("") }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
-        item { V2Header("Search", "Find movies and TV shows by title.") }
+        item { V2Header("Search", "Search metadata and searchable catalogs from installed add-ons.") }
         item {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(query, { query = it }, Modifier.weight(1f), singleLine = true, label = { Text("Movie or TV show") })
-                Button(enabled = !busy && query.trim().length >= 2, onClick = { busy = true; searched = true }) { Icon(Icons.Default.Search, "Search") }
+                Button(enabled = !busy && query.trim().length >= 2, onClick = { busy = true; searched = true; message = "" }) { Icon(Icons.Default.Search, "Search") }
             }
         }
         item {
             LaunchedEffect(busy) {
                 if (busy) {
-                    results = withContext(Dispatchers.IO) { runCatching { fetchV2Search(query) }.getOrDefault(emptyList()) }
+                    val result = withContext(Dispatchers.IO) {
+                        val core = runCatching { fetchV2Search(query) }.getOrDefault(emptyList())
+                        val catalogs = runCatching { catalogClient.catalogs() }.getOrDefault(emptyList())
+                        val addonRows = catalogs.filter { it.supportsSearch }.take(10).flatMap { catalog ->
+                            runCatching { catalogClient.items(catalog, query) }.getOrDefault(emptyList()).map { row ->
+                                V2Title(row.id, if (row.type.lowercase() in listOf("series", "tv")) "series" else "movie", row.title, row.year, row.overview, row.poster)
+                            }
+                        }
+                        (addonRows + core).distinctBy { it.id }.take(60)
+                    }
+                    results = result
+                    message = if (runCatching { catalogClient.catalogs().none { it.supportsSearch } }.getOrDefault(true)) "No searchable add-on catalogs detected; results use metadata search." else ""
                     busy = false
                 }
             }
         }
         if (busy) item { V2Loading() }
-        if (!busy && searched && results.isEmpty()) item { Text("No matching titles found.", color = V2Muted, modifier = Modifier.padding(horizontal = 18.dp)) }
-        items(results, key = { it.id }) { V2ResultCard(it, onSelect) }
+        if (message.isNotBlank()) item { Text(message, color = V2Muted, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 18.dp)) }
+        if (!busy && searched && results.isEmpty()) item { Text("No matching titles found. Check your connection or try another title.", color = V2Muted, modifier = Modifier.padding(horizontal = 18.dp)) }
+        items(results, key = { it.type + ":" + it.id }) { V2ResultCard(it, onSelect) }
     }
 }
 
+@Composable
+private fun V2AddonCatalogBrowser(onSelect: (V2Title) -> Unit) {
+    val context = LocalContext.current
+    val client = remember { StremioCatalogClient(context.applicationContext) }
+    var catalogs by remember { mutableStateOf(emptyList<StremioCatalogRef>()) }
+    var selected by remember { mutableStateOf<StremioCatalogRef?>(null) }
+    var query by remember { mutableStateOf("") }
+    var rows by remember { mutableStateOf(emptyList<StremioCatalogTitle>()) }
+    var loading by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        catalogs = withContext(Dispatchers.IO) { runCatching { client.catalogs() }.getOrDefault(emptyList()) }
+    }
+    LaunchedEffect(selected, query) {
+        val catalog = selected ?: return@LaunchedEffect
+        loading = true; message = ""
+        val result = withContext(Dispatchers.IO) { runCatching { client.items(catalog, query) } }
+        result.onSuccess { rows = it; if (it.isEmpty()) message = "No titles returned. This catalog may not support search or may be temporarily unavailable." }
+            .onFailure { message = it.message ?: "Could not load this catalog." }
+        loading = false
+    }
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 26.dp)) {
+        item { V2Header("Discover", "Browse collections published by your installed add-ons.") }
+        if (selected == null) {
+            item {
+                OutlinedButton(onClick = { loading = true; androidx.compose.runtime.LaunchedEffect(Unit) { } }, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp)) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(5.dp)); Text("Refresh catalogs") }
+            }
+            if (catalogs.isEmpty()) item {
+                Card(Modifier.fillMaxWidth().padding(horizontal = 18.dp), colors = CardDefaults.cardColors(V2Panel), shape = RoundedCornerShape(18.dp)) {
+                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("No catalogs detected yet", fontWeight = FontWeight.Bold)
+                        Text("Install an add-on that declares catalogs in its manifest. Stream-only add-ons remain available when opening a title.", color = V2Muted, fontSize = 12.sp)
+                    }
+                }
+            }
+            items(catalogs, key = { it.addonId + ":" + it.type + ":" + it.id }) { catalog ->
+                Card(onClick = { selected = catalog; query = "" }, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp), colors = CardDefaults.cardColors(V2Panel2), shape = RoundedCornerShape(15.dp)) {
+                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Box(Modifier.size(40.dp).background(V2Teal.copy(alpha = .12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.VideoLibrary, null, tint = V2Teal) }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(catalog.name, fontWeight = FontWeight.SemiBold)
+                            Text(catalog.addonName + " · " + catalog.type, color = V2Muted, fontSize = 10.sp)
+                            if (catalog.supportsSearch) Text("Searchable catalog", color = V2Teal, fontSize = 10.sp)
+                        }
+                        Icon(Icons.Default.ChevronRight, null, tint = V2Teal)
+                    }
+                }
+            }
+        } else {
+            item {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { selected = null; rows = emptyList(); message = "" }) { Icon(Icons.Default.ArrowBack, "Back", tint = V2Teal) }
+                    Column(Modifier.weight(1f)) { Text(selected!!.name, fontWeight = FontWeight.Bold); Text(selected!!.addonName, color = V2Muted, fontSize = 10.sp) }
+                }
+            }
+            if (selected!!.supportsSearch) item { OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(horizontal = 18.dp), singleLine = true, label = { Text("Search this catalog") }) }
+            if (loading) item { V2Loading() }
+            if (message.isNotBlank() && !loading) item { Text(message, color = V2Muted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 18.dp)) }
+            items(rows, key = { it.type + ":" + it.id }) { row -> V2ResultCard(V2Title(row.id, if (row.type.lowercase() in listOf("series", "tv")) "series" else "movie", row.title, row.year, row.overview, row.poster), onSelect) }
+        }
+    }
+}
 @Composable
 private fun V2Header(title: String, subtitle: String) {
     Column(Modifier.padding(horizontal = 20.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
