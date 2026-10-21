@@ -1,0 +1,81 @@
+name: Apply New Releases Homepage Update
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  update-homepage:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Update Android homepage
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('android/app/src/main/java/com/debridmediacenter/android/AndroidApp.kt')
+          s = p.read_text()
+          marker = '// NEW_RELEASES_HOMEPAGE_V1'
+          if marker in s:
+              print('Homepage update already applied')
+              raise SystemExit(0)
+
+          s = s.replace(
+              'var tab by remember { mutableIntStateOf(1) }',
+              'var tab by remember { mutableIntStateOf(0) }'
+          )
+
+          s = s.replace(
+              'val nav = listOf(\n                                1 to ("Debrid Manager" to Icons.Default.Search),',
+              'val nav = listOf(\n                                0 to ("Home" to Icons.Default.Home),\n                                1 to ("Debrid Manager" to Icons.Default.Search),'
+          )
+
+          s = s.replace(
+              '    var shows by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }\n    var loading by remember { mutableStateOf(true) }',
+              '    var shows by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }\n    var newMovies by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }\n    var loading by remember { mutableStateOf(true) }\n    var newReleasesLoading by remember { mutableStateOf(true) }'
+          )
+
+          s = s.replace(
+              '        val catalog = withContext(Dispatchers.IO) {\n            val movieRows = runCatching { fetchCatalogTitles("movie", "imdbRating") }.getOrDefault(emptyList())\n            val showRows = runCatching { fetchCatalogTitles("series", "imdbRating") }.getOrDefault(emptyList())\n            movieRows to showRows\n        }\n        movies = catalog.first\n        shows = catalog.second\n        loading = false',
+              '        val catalog = withContext(Dispatchers.IO) {\n            val movieRows = runCatching { fetchCatalogTitles("movie", "imdbRating") }.getOrDefault(emptyList())\n            val showRows = runCatching { fetchCatalogTitles("series", "imdbRating") }.getOrDefault(emptyList())\n            movieRows to showRows\n        }\n        movies = catalog.first\n        shows = catalog.second\n        loading = false\n        newReleasesLoading = true\n        newMovies = withContext(Dispatchers.IO) { runCatching { fetchNewReleaseMovies() }.getOrDefault(emptyList()) }\n        newReleasesLoading = false'
+          )
+
+          s = s.replace(
+              '        item {\n            val history = collectionStore.continueWatching()',
+              '        item {\n            HomeNewReleasesRow(newMovies, newReleasesLoading, onOpenDetails)\n        }\n        item {\n            val history = collectionStore.continueWatching()'
+          )
+
+          insert_before = '@Composable\nprivate fun HomeHistoryRow('
+          helper = '''@Composable\nprivate fun HomeNewReleasesRow(\n    entries: List<MediaSearchResult>,\n    loading: Boolean,\n    onOpenDetails: (MediaSearchResult) -> Unit\n) {\n    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {\n        Column(Modifier.padding(horizontal = 18.dp)) {\n            Text("New releases", fontSize = 19.sp, fontWeight = FontWeight.Bold)\n            Text("Movies you may not have heard about yet", color = Muted, fontSize = 11.sp)\n        }\n        if (loading && entries.isEmpty()) {\n            Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 18.dp), horizontalArrangement = Arrangement.Center) {\n                CircularProgressIndicator(color = Teal, modifier = Modifier.size(22.dp))\n            }\n        } else if (entries.isEmpty()) {\n            Text("No recent releases are available right now.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 18.dp))\n        } else {\n            LazyRow(contentPadding = PaddingValues(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {\n                items(entries.take(20), key = { "new:${it.id}" }) { entry ->\n                    Column(Modifier.width(124.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {\n                        Card(onClick = { onOpenDetails(entry) }, colors = CardDefaults.cardColors(containerColor = Panel2), shape = RoundedCornerShape(14.dp)) {\n                            AsyncImage(\n                                model = entry.posterUrl.takeIf { it.isNotBlank() },\n                                contentDescription = entry.title,\n                                modifier = Modifier.fillMaxWidth().height(178.dp),\n                                contentScale = ContentScale.Crop\n                            )\n                        }\n                        Text(entry.title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)\n                        Text(entry.year.ifBlank { "New" }, color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)\n                    }\n                }\n            }\n        }\n    }\n}\n\n'''
+          if insert_before not in s:
+              raise SystemExit('Could not find HomeHistoryRow insertion point')
+          s = s.replace(insert_before, helper + insert_before, 1)
+
+          fetch_marker = 'private fun searchTitles(query: String): List<MediaSearchResult> {'
+          fetch_helper = '''private fun fetchNewReleaseMovies(): List<MediaSearchResult> {\n    val years = listOf(java.time.Year.now().value, java.time.Year.now().value - 1)\n    for (year in years) {\n        val rows = runCatching { fetchCatalogTitles("movie", "year", "genre", year.toString()) }.getOrDefault(emptyList())\n        if (rows.isNotEmpty()) return rows\n    }\n    return emptyList()\n}\n\n'''
+          if fetch_marker not in s:
+              raise SystemExit('Could not find catalog helper insertion point')
+          s = s.replace(fetch_marker, fetch_helper + fetch_marker, 1)
+
+          s = s.replace(
+              'package com.debridmediacenter.android',
+              'package com.debridmediacenter.android\n\n// NEW_RELEASES_HOMEPAGE_V1',
+              1
+          )
+          p.write_text(s)
+          PY
+
+      - name: Commit app change and remove one-time updater
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add android/app/src/main/java/com/debridmediacenter/android/AndroidApp.kt
+          git rm .github/workflows/apply-new-releases.yml
+          git commit -m "Add new releases to Debrid Manager homepage"
+          git push
