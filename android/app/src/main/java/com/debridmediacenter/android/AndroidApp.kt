@@ -605,7 +605,7 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, initialS
     }
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(bottom = 28.dp)) {
-        item { Header("Discover", "Find something worth watching.") }
+        item { Header("Debrid Manager", "Search releases and add them directly to Real-Debrid or TorBox.") }
         item {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
@@ -621,7 +621,7 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, initialS
             item {
                 Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel), shape = RoundedCornerShape(18.dp)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("SEARCH TITLES", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text("SEARCH TITLES TO ADD", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             OutlinedTextField(query, { query = it }, label = { Text("Movie or show") }, modifier = Modifier.weight(1f), singleLine = true)
                             Button(enabled = !busy && query.trim().length >= 2, onClick = {
@@ -649,13 +649,13 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, initialS
                         }
                     }
                 }
-                items(results.filter { searchType == "All" || (searchType == "Movies" && it.type == "movie") || (searchType == "TV Shows" && it.type != "movie") }, key = { it.id }) { item -> MediaResultCard(item) { onDetails(item) } }
+                items(results.filter { searchType == "All" || (searchType == "Movies" && it.type == "movie") || (searchType == "TV Shows" && it.type != "movie") }, key = { it.id }) { item -> MediaResultCard(item) { chooseTitle(item) } }
             } else {
                 item { SelectedTitleCard(selected!!) { selected = null; releases = emptyList() } }
                 item {
                     Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel2), shape = RoundedCornerShape(18.dp)) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("RELEASE SEARCH", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Text("FIND RELEASES · ADD TO DEBRID", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 FilterChip(provider == ProviderStore.REAL_DEBRID, { provider = ProviderStore.REAL_DEBRID }, label = { Text("Real-Debrid") })
                                 FilterChip(provider == ProviderStore.TORBOX, { provider = ProviderStore.TORBOX }, label = { Text("TorBox") })
