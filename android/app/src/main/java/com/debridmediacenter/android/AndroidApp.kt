@@ -1075,6 +1075,81 @@ private fun LibraryScreen(
     var notice by remember { mutableStateOf("") }
     var downloadingId by remember { mutableStateOf<String?>(null) }
     var selectedProvider by remember { mutableStateOf("all") }
+    var detailItem by remember { mutableStateOf<ProviderLibraryItem?>(null) }
+    var detailData by remember { mutableStateOf<ProviderItemDetails?>(null) }
+    var detailsLoading by remember { mutableStateOf(false) }
+    var detailsError by remember { mutableStateOf("") }
+
+    fun openItemDetails(item: ProviderLibraryItem) {
+        detailItem = item
+        detailData = null
+        detailsError = ""
+        detailsLoading = true
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { store.fetchLibraryItemDetails(item.provider, item.id) }
+            }
+            result.onSuccess { detailData = it }.onFailure {
+                detailsError = it.message ?: "Could not load item details."
+            }
+            detailsLoading = false
+        }
+    }
+
+    fun formatBytes(bytes: Long): String {
+        if (bytes < 0L) return "Unknown"
+        if (bytes < 1024L) return "$bytes B"
+        val units = listOf("KB", "MB", "GB", "TB")
+        var value = bytes.toDouble()
+        var unit = -1
+        while (value >= 1024.0 && unit < units.lastIndex) { value /= 1024.0; unit++ }
+        return String.format(java.util.Locale.US, "%.2f %s", value, units[unit])
+    }
+
+    if (detailItem != null) {
+        AlertDialog(
+            onDismissRequest = { if (!detailsLoading) detailItem = null },
+            title = { Text(detailItem!!.title, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(if (detailItem!!.provider == ProviderStore.TORBOX) "TORBOX" else "REAL-DEBRID", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    when {
+                        detailsLoading -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            CircularProgressIndicator(color = Teal, modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                            Text("Loading file list and sizes…", color = Muted, fontSize = 12.sp)
+                        }
+                        detailsError.isNotBlank() -> Text(detailsError, color = Color(0xFFFFB4AB), fontSize = 12.sp)
+                        detailData != null -> {
+                            Text("Total size: ${formatBytes(detailData!!.totalSizeBytes)}", color = ThemeText, fontWeight = FontWeight.SemiBold)
+                            Text("${detailData!!.files.size} file${if (detailData!!.files.size == 1) "" else "s"} in this item", color = Muted, fontSize = 12.sp)
+                            HorizontalDivider(color = Panel2)
+                            if (detailData!!.files.isEmpty()) Text("No file list was provided by the provider.", color = Muted, fontSize = 12.sp)
+                            else Column(Modifier.height(300.dp)) {
+                                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    items(detailData!!.files) { file ->
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(file.name, color = ThemeText, fontSize = 12.sp, lineHeight = 16.sp)
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Text(formatBytes(file.sizeBytes), color = Muted, fontSize = 11.sp)
+                                                if (file.selected) Text("Selected", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                        HorizontalDivider(color = Panel2)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { detailItem = null }, enabled = !detailsLoading) { Text("Close") }
+            },
+            containerColor = Panel,
+            titleContentColor = ThemeText,
+            textContentColor = ThemeText
+        )
+    }
 
     fun loadLibrary() {
         if (loading) return
@@ -1230,7 +1305,8 @@ private fun LibraryScreen(
         items(visibleItems, key = { "${it.provider}:${it.id}:${it.title}" }) { item ->
             var downloadBusy by remember(item.id) { mutableStateOf(false) }
             Card(
-                Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                onClick = { openItemDetails(item) },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
                 colors = CardDefaults.cardColors(containerColor = Panel),
                 shape = RoundedCornerShape(18.dp)
             ) {
@@ -1249,7 +1325,7 @@ private fun LibraryScreen(
                                 color = Teal, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.7.sp
                             )
                         }
-                        Text("${item.progress}%", color = Muted, fontSize = 11.sp)
+                        Column(horizontalAlignment = Alignment.End) { Text("${item.progress}%", color = Muted, fontSize = 11.sp); Text("Details", color = Teal, fontSize = 10.sp) }
                     }
                     androidx.compose.material3.LinearProgressIndicator(
                         progress = { item.progress.coerceIn(0, 100) / 100f },
