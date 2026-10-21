@@ -103,11 +103,11 @@ ApplicationWindow {
  height: 42
  radius: 12
  color: "#153b3d"
- Text { anchors.centerIn: parent
- text: "D"
- color: win.teal
- font.pixelSize: 25
- font.bold: true } }
+ clip: true
+ Image { anchors.fill: parent
+ anchors.margins: 1
+ source: "dmc-icon.svg"
+ fillMode: Image.PreserveAspectFit } }
                     ColumnLayout { spacing: 0
  Text { text: "DEBRID"
  color: win.text

@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QUrl
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 
 from debrid_media_center.backend import Backend
@@ -17,6 +17,9 @@ def main() -> int:
     app = QGuiApplication(sys.argv)
     app.setApplicationName("Debrid Media Center")
     app.setOrganizationName("DebridMediaCenter")
+    icon_path = Path(__file__).parent / "qml" / "dmc-icon.svg"
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
 
     engine = QQmlApplicationEngine()
     backend = Backend()

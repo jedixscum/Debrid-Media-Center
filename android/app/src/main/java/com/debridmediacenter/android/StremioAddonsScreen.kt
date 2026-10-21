@@ -99,7 +99,7 @@ fun StremioAddonsScreen(onClose: () -> Unit) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("Add an add-on", fontSize = 17.sp, fontWeight = FontWeight.Bold)
                         Text(
-                            "Paste a Stremio add-on manifest URL. The app validates the manifest, saves it on this device, and can query its movie and series stream endpoints.",
+                            "Paste a Stremio add-on manifest URL. The app validates and stores its declared capabilities, including metadata, catalogs, and movie or series streams when supported. Metadata add-ons are tried before the built-in fallback.",
                             color = AddonMuted,
                             fontSize = 12.sp,
                             lineHeight = 17.sp

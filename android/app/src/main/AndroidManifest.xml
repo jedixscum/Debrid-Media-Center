@@ -3,7 +3,9 @@
     <application
         android:allowBackup="false"
         android:label="Debrid Media Center"
-        android:theme="@android:style/Theme.Material.NoActionBar"
+        android:icon="@drawable/ic_dmc_launcher"
+        android:roundIcon="@drawable/ic_dmc_launcher"
+        android:theme="@style/AppTheme"
         android:supportsRtl="true">
         <activity
             android:name=".MainActivity"

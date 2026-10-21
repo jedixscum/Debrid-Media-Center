@@ -20,7 +20,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.media3.common.C
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.TrackSelectionDialogBuilder
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -82,33 +84,19 @@ fun AioMediaCenterV2App() {
                 )
                 mode == V2Mode.DEBRID -> Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars)) {
                     DebridMediaCenterApp()
-                    OutlinedButton(
-                        onClick = { mode = V2Mode.HOME },
-                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp)
-                    ) {
-                        Icon(Icons.Default.Home, null, Modifier.size(16.dp))
-                        Spacer(Modifier.width(5.dp))
-                        Text("HOME", fontSize = 10.sp)
+                    Row(Modifier.align(Alignment.TopStart).padding(start = 8.dp, top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = { mode = V2Mode.HOME }) {
+                            Icon(Icons.Default.Home, contentDescription = "Home", modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(5.dp)); Text("Home", fontSize = 12.sp)
+                        }
                     }
                 }
-                else -> Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars)) {
-                    V2Streaming(
-                        tab = tab,
-                        onTab = { tab = it },
-                        selected = selected,
-                        onSelect = { selected = it },
-                        onBack = { selected = null },
-                        onPlay = { title, url -> player = title to url }
-                    )
-                    OutlinedButton(
-                        onClick = { mode = V2Mode.HOME; selected = null; tab = V2Tab.HOME },
-                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp)
-                    ) {
-                        Icon(Icons.Default.Home, contentDescription = "Home", modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(5.dp))
-                        Text("HOME", fontSize = 10.sp)
-                    }
-                }
+                else -> V2Streaming(
+                    tab = tab, onTab = { tab = it }, selected = selected,
+                    onSelect = { selected = it }, onBack = { selected = null },
+                    onPlay = { title, url -> player = title to url },
+                    onHome = { mode = V2Mode.HOME; selected = null; tab = V2Tab.HOME }
+                )
             }
         }
     }
@@ -116,12 +104,23 @@ fun AioMediaCenterV2App() {
 
 @Composable
 private fun V2Chooser(onDebrid: () -> Unit, onStreaming: () -> Unit) {
-    LazyColumn(contentPadding = PaddingValues(20.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    LazyColumn(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                Text("DEBRID MEDIA CENTER", color = V2Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-                Text("All your media, one app.", fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                Text("Manage debrid libraries or stream through your installed Stremio add-ons.", color = V2Muted, fontSize = 13.sp)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                DmcBrandMark(62)
+                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text("DEBRID MEDIA CENTER", color = V2Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.7.sp)
+                    Text("Your media. Your way.", fontSize = 28.sp, fontWeight = FontWeight.Bold, lineHeight = 32.sp)
+                    Text("One home for discovery, debrid libraries and playback.", color = V2Muted, fontSize = 12.sp, lineHeight = 17.sp)
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(V2Panel), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Icon(Icons.Default.Security, null, tint = V2Teal)
+                    Text("Your add-ons and provider connections stay under your control.", color = V2Muted, fontSize = 11.sp, lineHeight = 16.sp)
+                }
             }
         }
         item {
@@ -129,6 +128,15 @@ private fun V2Chooser(onDebrid: () -> Unit, onStreaming: () -> Unit) {
         }
         item {
             V2ModeCard(Icons.Default.PlayArrow, "STREMIO STREAMING", "Browse · Pick a stream · Watch", "Search movies and TV, select seasons and episodes, query your installed Stremio add-ons, and play direct streams.", "Open Streaming", onStreaming)
+        }
+    }
+}
+
+@Composable
+private fun DmcBrandMark(size: Int) {
+    Box(Modifier.size(size.dp).background(V2Panel2, RoundedCornerShape((size / 4).dp)), contentAlignment = Alignment.Center) {
+        Box(Modifier.size((size * 0.72f).dp).background(V2Teal.copy(alpha = 0.14f), RoundedCornerShape((size / 5).dp)), contentAlignment = Alignment.Center) {
+            Icon(Icons.Default.PlayCircleFilled, contentDescription = "Debrid Media Center", tint = V2Teal, modifier = Modifier.size((size * 0.53f).dp))
         }
     }
 }
@@ -147,15 +155,16 @@ private fun V2ModeCard(icon: androidx.compose.ui.graphics.vector.ImageVector, ey
 }
 
 @Composable
-private fun V2Streaming(
-    tab: V2Tab,
-    onTab: (V2Tab) -> Unit,
-    selected: V2Title?,
-    onSelect: (V2Title) -> Unit,
-    onBack: () -> Unit,
-    onPlay: (String, String) -> Unit
-) {
+private fun V2Streaming(tab: V2Tab, onTab: (V2Tab) -> Unit, selected: V2Title?, onSelect: (V2Title) -> Unit, onBack: () -> Unit, onPlay: (String, String) -> Unit, onHome: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 14.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            DmcBrandMark(38)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text("DEBRID MEDIA CENTER", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Text("Your media, in one place", color = V2Muted, fontSize = 10.sp)
+            }
+            TextButton(onClick = onHome) { Icon(Icons.Default.Home, contentDescription = "Home", modifier = Modifier.size(17.dp)); Spacer(Modifier.width(4.dp)); Text("Home", fontSize = 12.sp) }
+        }
         Column(Modifier.weight(1f).fillMaxWidth()) {
             if (selected != null) V2Details(selected, onBack, onPlay)
             else when (tab) {
@@ -323,7 +332,7 @@ private fun V2Details(item: V2Title, onBack: () -> Unit, onPlay: (String, String
         }
         guideLoading = true
         guideError = ""
-        val result = withContext(Dispatchers.IO) { runCatching { fetchV2Episodes(item.id) } }
+        val result = withContext(Dispatchers.IO) { runCatching { fetchV2Episodes(item.id, addonStore) } }
         result.onSuccess {
             episodes = it
             season = it.firstOrNull()?.season ?: 1
@@ -512,9 +521,10 @@ private fun V2Details(item: V2Title, onBack: () -> Unit, onPlay: (String, String
     }
 }
 
-private fun fetchV2Episodes(imdbId: String): List<V2Episode> {
+private fun fetchV2Episodes(imdbId: String, addonStore: StremioAddonStore): List<V2Episode> {
     require(imdbId.matches(Regex("^tt\\d+$"))) { "This show has no valid IMDb ID for its episode guide." }
-    val root = fetchV2Json("https://v3-cinemeta.strem.io/meta/series/${Uri.encode(imdbId)}.json")
+    val root = addonStore.metaResponse("series", imdbId)
+        ?: fetchV2Json("https://v3-cinemeta.strem.io/meta/series/" + Uri.encode(imdbId) + ".json")
     val meta = root.optJSONObject("meta") ?: return emptyList()
     val videos = meta.optJSONArray("videos") ?: JSONArray()
     return (0 until videos.length()).mapNotNull { i ->
@@ -588,6 +598,7 @@ private fun V2Loading() {
 private fun V2Player(title: String, url: String, onClose: () -> Unit) {
     val context = LocalContext.current
     var error by remember(url) { mutableStateOf("") }
+    var playbackSpeed by remember(url) { mutableFloatStateOf(1f) }
     val exoPlayer = remember(url) {
         androidx.media3.exoplayer.ExoPlayer.Builder(context).build().apply {
             setMediaItem(androidx.media3.common.MediaItem.fromUri(Uri.parse(url)))
@@ -602,19 +613,45 @@ private fun V2Player(title: String, url: String, onClose: () -> Unit) {
         exoPlayer.addListener(listener)
         onDispose { exoPlayer.removeListener(listener); exoPlayer.release() }
     }
-    Column(Modifier.fillMaxSize().background(Color.Black)) {
-        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("NOW PLAYING", color = V2Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+    Column(Modifier.fillMaxSize().background(Color.Black).windowInsetsPadding(WindowInsets.statusBars)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+            DmcBrandMark(34); Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("NOW PLAYING", color = V2Teal, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
                 Text(title, color = Color.White, fontSize = 12.sp, maxLines = 1)
             }
-            OutlinedButton(onClick = onClose) { Text("Close") }
+            TextButton(onClick = onClose) { Text("Done", color = V2Teal) }
         }
-        if (error.isNotBlank()) Text("Playback failed: $error", color = Color(0xFFFF9B9B), fontSize = 12.sp, modifier = Modifier.padding(14.dp))
+        if (error.isNotBlank()) {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Playback couldn't start", color = Color(0xFFFF9B9B), fontWeight = FontWeight.Bold)
+                Text(error, color = V2Muted, fontSize = 12.sp)
+                TextButton(onClick = { error = ""; exoPlayer.prepare(); exoPlayer.playWhenReady = true }) { Text("Retry", color = V2Teal) }
+            }
+        }
         androidx.compose.ui.viewinterop.AndroidView(
-            factory = { PlayerView(it).apply { this.player = exoPlayer; useController = true } },
+            factory = { PlayerView(it).apply { this.player = exoPlayer; useController = true; controllerAutoShow = true } },
             update = { it.player = exoPlayer },
             modifier = Modifier.fillMaxWidth().weight(1f)
         )
+        Column(Modifier.fillMaxWidth().background(V2Panel).padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(onClick = { exoPlayer.seekTo((exoPlayer.currentPosition - 10_000L).coerceAtLeast(0L)) }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.Replay10, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("10 sec")
+                }
+                OutlinedButton(onClick = { exoPlayer.seekTo((exoPlayer.currentPosition + 10_000L).coerceAtMost(exoPlayer.duration.takeIf { it > 0 } ?: Long.MAX_VALUE)) }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.Forward10, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("10 sec")
+                }
+                OutlinedButton(onClick = { TrackSelectionDialogBuilder(context, "Audio track", exoPlayer, C.TRACK_TYPE_AUDIO).build().show() }, modifier = Modifier.weight(1f)) { Text("Audio", fontSize = 11.sp) }
+                OutlinedButton(onClick = { TrackSelectionDialogBuilder(context, "Subtitles", exoPlayer, C.TRACK_TYPE_TEXT).build().show() }, modifier = Modifier.weight(1f)) { Text("Subtitles", fontSize = 11.sp) }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Speed", color = V2Muted, fontSize = 10.sp)
+                listOf(0.75f, 1f, 1.25f, 1.5f, 2f).forEach { speed ->
+                    FilterChip(selected = playbackSpeed == speed, onClick = { playbackSpeed = speed; exoPlayer.setPlaybackSpeed(speed) },
+                        label = { Text(if (speed == 1f) "1×" else speed.toString() + "×", fontSize = 10.sp) })
+                }
+            }
+        }
     }
 }
