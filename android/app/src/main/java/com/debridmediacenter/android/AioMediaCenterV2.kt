@@ -119,7 +119,7 @@ private fun V2Chooser(onDebrid: () -> Unit, onStreaming: () -> Unit) {
             }
         }
         item {
-            V2ModeCard(Icons.Default.Folder, "DEBRID MANAGER", "Find · Add · Manage · Play", "Search titles, find releases, add them to Real-Debrid or TorBox, manage libraries, and play ready media.", "Open Debrid Manager", onDebrid)
+            V2ModeCard(Icons.Default.Folder, "DEBRID MANAGER", "Find · Add · Manage · Download", "Search titles, find releases, add them to Real-Debrid or TorBox, manage libraries, and play ready media.", "Open Debrid Manager", onDebrid)
         }
         item {
             V2ModeCard(Icons.Default.PlayArrow, "STREMIO STREAMING", "Browse · Pick a stream · Watch", "Search movies and TV, select seasons and episodes, query your installed Stremio add-ons, and play direct streams.", "Open Streaming", onStreaming)
