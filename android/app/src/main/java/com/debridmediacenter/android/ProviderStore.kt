@@ -27,6 +27,9 @@ data class ProviderLibraryItem(
     val progress: Int
 )
 
+data class ProviderFileDetail(val name: String, val sizeBytes: Long, val selected: Boolean = false)
+data class ProviderItemDetails(val totalSizeBytes: Long, val files: List<ProviderFileDetail>)
+
 data class CacheCheckResult(
     val provider: String,
     val hash: String,
@@ -752,6 +755,57 @@ class ProviderStore(context: Context) {
             }
             else -> throw IllegalArgumentException("Unknown provider.")
         }
+    }
+
+    fun fetchLibraryItemDetails(provider: String, itemId: String): ProviderItemDetails {
+        val secret = readToken(provider)?.trim().orEmpty()
+        require(secret.isNotEmpty()) { "Connect this provider in Services first." }
+        require(itemId.isNotBlank()) { "This library item has no provider ID." }
+        val endpoint = when (provider) {
+            REAL_DEBRID -> "https://api.real-debrid.com/rest/1.0/torrents/info/" + URLEncoder.encode(itemId, "UTF-8")
+            TORBOX -> "https://api.torbox.app/v1/api/torrents/mylist?id=" + URLEncoder.encode(itemId, "UTF-8")
+            else -> error("Unknown provider.")
+        }
+        val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 15000
+            readTimeout = 20000
+            setRequestProperty("Authorization", "Bearer $secret")
+            setRequestProperty("Accept", "application/json")
+        }
+        try {
+            val status = connection.responseCode
+            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            if (status !in 200..299) throw IllegalStateException("Could not load item details (HTTP $status).")
+            val root = JSONObject(body)
+            if (provider == TORBOX && root.has("success") && !root.optBoolean("success", false)) {
+                throw IllegalStateException(root.optString("detail").ifBlank { "TorBox could not load item details." })
+            }
+            val item = if (provider == TORBOX) {
+                when (val data = root.opt("data")) {
+                    is JSONObject -> data
+                    is org.json.JSONArray -> (0 until data.length()).mapNotNull { data.optJSONObject(it) }
+                        .firstOrNull { it.optString("id") == itemId } ?: data.optJSONObject(0)
+                    else -> null
+                } ?: throw IllegalStateException("No item details were returned.")
+            } else root
+            val filesJson = item.optJSONArray("files") ?: org.json.JSONArray()
+            val files = mutableListOf<ProviderFileDetail>()
+            for (i in 0 until filesJson.length()) {
+                val file = filesJson.optJSONObject(i) ?: continue
+                val name = file.optString("path").takeIf { it.isNotBlank() && it != "null" }
+                    ?: file.optString("name").takeIf { it.isNotBlank() && it != "null" }
+                    ?: file.optString("short_name").takeIf { it.isNotBlank() && it != "null" }
+                    ?: "File ${i + 1}"
+                val size = file.optLong("bytes", file.optLong("size", file.optLong("size_bytes", 0L))).coerceAtLeast(0L)
+                files.add(ProviderFileDetail(name, size, file.optInt("selected", 0) == 1))
+            }
+            val summedSize = files.sumOf { it.sizeBytes }
+            val total = item.optLong("original_bytes", item.optLong("size", item.optLong("size_bytes", 0L)))
+                .takeIf { it > 0L } ?: summedSize
+            return ProviderItemDetails(total.coerceAtLeast(0L), files)
+        } finally { connection.disconnect() }
     }
 
     fun fetchLibrary(provider: String): List<ProviderLibraryItem> {
