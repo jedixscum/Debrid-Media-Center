@@ -151,6 +151,9 @@ private fun V2ModeCard(icon: androidx.compose.ui.graphics.vector.ImageVector, ey
 
 @Composable
 private fun V2Streaming(tab: V2Tab, onTab: (V2Tab) -> Unit, selected: V2Title?, onSelect: (V2Title) -> Unit, onBack: () -> Unit, onPlay: (String, String) -> Unit, onHome: () -> Unit) {
+    val context = LocalContext.current
+    val mediaLibrary = remember { V2MediaLibrary(context.applicationContext) }
+    LaunchedEffect(selected?.id) { selected?.let { mediaLibrary.markRecent(it.toSavedMedia()) } }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 14.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             DmcBrandMark(38)
