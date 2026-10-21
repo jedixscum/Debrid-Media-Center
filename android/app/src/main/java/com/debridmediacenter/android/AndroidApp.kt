@@ -1314,7 +1314,8 @@ private fun SettingsScreen(store: ProviderStore, scope: CoroutineScope, collecti
                 ProviderCard(store, scope, ProviderStore.TORBOX, "TorBox")
                 ProviderCard(store, scope, ProviderStore.DMM, "DMM sponsor API")
             }
-        }        item {
+        }
+        item {
             SettingsSection("APPEARANCE", "Choose a popular color theme.") {
                 listOf("Dark Teal","Dracula","Nord","AMOLED","Light").forEach { option ->
                     Row(Modifier.fillMaxWidth().clickable { onThemeChange(option) }.padding(vertical=7.dp), verticalAlignment=Alignment.CenterVertically) {
