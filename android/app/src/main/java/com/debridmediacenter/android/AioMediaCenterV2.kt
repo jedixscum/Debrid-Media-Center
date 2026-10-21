@@ -42,7 +42,7 @@ private val V2Muted = Color(0xFF91A5AE)
 private enum class V2Mode { HOME, DEBRID, STREAMING }
 private enum class V2Tab { HOME, SEARCH, MOVIES, TV, CATALOGS, LIBRARY, ADDONS }
 
-private data class V2Title(
+internal data class V2Title(
     val id: String,
     val type: String,
     val title: String,
