@@ -1135,7 +1135,10 @@ private fun fetchUpcomingCalendar(movies: Boolean): List<CalendarRelease> {
     val now = java.time.Instant.now()
     val end = now.plus(92, java.time.temporal.ChronoUnit.DAYS)
     val years = listOf(java.time.Year.now().value, java.time.Year.now().value + 1)
-    val candidates = years.flatMap { year -> runCatching { fetchCatalogTitles(type, "year", "genre", year.toString()) }.getOrDefault(emptyList()) }.distinctBy { it.id }.take(36)
+    val candidates = (years.flatMap { year ->
+        runCatching { fetchCatalogTitles(type, "year", "genre", year.toString()) }.getOrDefault(emptyList())
+    } + runCatching { fetchCatalogTitles(type, "top", null, null) }.getOrDefault(emptyList()))
+        .distinctBy { it.id }.take(80)
     val output = mutableListOf<CalendarRelease>()
     for (item in candidates) {
         val date = runCatching { fetchUpcomingDateForItem(item) }.getOrNull() ?: continue
@@ -1169,8 +1172,13 @@ private fun fetchUpcomingDateForItem(item: MediaSearchResult): java.time.Instant
 }
 
 private fun parseReleaseInstant(raw: String): java.time.Instant? {
-    if (raw.isBlank()) return null
-    return runCatching { java.time.Instant.parse(raw) }.getOrNull() ?: runCatching { java.time.OffsetDateTime.parse(raw).toInstant() }.getOrNull()
+    if (raw.isBlank() || raw == "null") return null
+    return runCatching { java.time.Instant.parse(raw) }.getOrNull()
+        ?: runCatching { java.time.OffsetDateTime.parse(raw).toInstant() }.getOrNull()
+        ?: runCatching {
+            java.time.LocalDate.parse(raw.take(10))
+                .atStartOfDay(java.time.ZoneId.systemDefault()).toInstant()
+        }.getOrNull()
 }
 
 private fun fetchNewReleaseMovies(): List<MediaSearchResult> {
