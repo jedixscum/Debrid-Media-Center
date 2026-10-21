@@ -16,6 +16,9 @@ on:
 permissions:
   contents: read
 
+env:
+  BUILD_TARGET: debug
+
 jobs:
   build-debug-apk:
     runs-on: ubuntu-24.04
@@ -29,8 +32,6 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # Install only currently supported SDK packages. The legacy "tools"
-      # package was removed from Google's SDK repository and makes setup fail.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
