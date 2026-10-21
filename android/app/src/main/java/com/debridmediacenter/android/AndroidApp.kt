@@ -1,6 +1,7 @@
 package com.debridmediacenter.android
 
 // NEW_RELEASES_HOMEPAGE_V1
+// UPCOMING_CALENDAR_V1
 
 import android.net.Uri
 import android.app.DownloadManager
@@ -29,6 +30,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
@@ -205,6 +207,7 @@ fun DebridMediaCenterApp() {
                                     }
                                 )
                                 2 -> LibraryScreen(store, scope)
+                                3 -> CalendarScreen(onOpenDetails = { item -> pendingSelection = item; detailsItem = null; navigateTo(1) })
                                 else -> SettingsScreen(store, scope, collectionStore, themeName.value, { chosen -> themeName.value=chosen; settings.edit().putString("theme",chosen).apply(); applyDmcTheme(chosen) }) { destination -> navigateTo(destination) }
                             }
                         }
@@ -213,7 +216,8 @@ fun DebridMediaCenterApp() {
                                 0 to ("Home" to Icons.Default.Home),
                                 1 to ("Debrid Manager" to Icons.Default.Search),
                                 2 to ("Library" to Icons.Default.Folder),
-                                3 to ("Settings" to Icons.Default.Settings)
+                                3 to ("Calendar" to Icons.Default.DateRange),
+                                4 to ("Settings" to Icons.Default.Settings)
                             )
                             nav.forEach { entry ->
                                 val destination = entry.first
@@ -284,7 +288,7 @@ private fun HomeScreen(store: ProviderStore, collectionStore: MediaCollectionSto
                         Text("Your personal cinema", color = Muted, fontSize = 11.sp)
                     }
                     Spacer(Modifier.weight(1f))
-                    IconButton(onClick = { onNavigate(3) }) {
+                    IconButton(onClick = { onNavigate(4) }) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Muted)
                     }
                 }
@@ -369,7 +373,7 @@ private fun HomeScreen(store: ProviderStore, collectionStore: MediaCollectionSto
         }
         item {
             Card(
-                onClick = { onNavigate(3) },
+                onClick = { onNavigate(4) },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
                 colors = CardDefaults.cardColors(containerColor = Panel),
                 shape = RoundedCornerShape(18.dp)
@@ -606,6 +610,52 @@ private fun HomeCard(title: String, body: String, icon: androidx.compose.ui.grap
                 Text(title, color = Teal, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                 Spacer(Modifier.height(4.dp))
                 Text(body, color = Muted, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarScreen(onOpenDetails: (MediaSearchResult) -> Unit) {
+    var mode by remember { mutableStateOf("Shows") }
+    var entries by remember { mutableStateOf<List<CalendarRelease>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf("") }
+    LaunchedEffect(mode) {
+        loading = true
+        error = ""
+        val result = withContext(Dispatchers.IO) { runCatching { fetchUpcomingCalendar(mode == "Movies") } }
+        result.onSuccess { entries = it }.onFailure { entries = emptyList(); error = it.message ?: "Could not load release calendar." }
+        loading = false
+    }
+    Column(Modifier.fillMaxSize()) {
+        Header("Calendar", "Upcoming releases for the next 3 months")
+        Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            FilterChip(selected = mode == "Shows", onClick = { mode = "Shows" }, label = { Text("Shows") })
+            FilterChip(selected = mode == "Movies", onClick = { mode = "Movies" }, label = { Text("Movies") })
+        }
+        Spacer(Modifier.height(14.dp))
+        when {
+            loading -> BoxLoading()
+            error.isNotBlank() -> Text(error, color = Color(0xFFFFB4AB), fontSize = 12.sp, modifier = Modifier.padding(18.dp))
+            entries.isEmpty() -> Text("No upcoming ${mode.lowercase()} were found in the next 3 months.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(18.dp))
+            else -> LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 28.dp)) {
+                items(entries, key = { "calendar:${it.item.type}:${it.item.id}:${it.releaseDate}" }) { release -> CalendarReleaseCard(release, onOpenDetails) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarReleaseCard(release: CalendarRelease, onOpenDetails: (MediaSearchResult) -> Unit) {
+    Card(onClick = { onOpenDetails(release.item) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+        Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            AsyncImage(model = release.item.posterUrl.takeIf { it.isNotBlank() }, contentDescription = release.item.title, modifier = Modifier.size(72.dp, 106.dp).background(Panel2, RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(release.dayLabel, color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Text(release.item.title, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+                Text("${release.item.type.uppercase()} · ${release.item.year.ifBlank { "Upcoming" }}", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                Text("Tap to find releases", color = Teal, fontSize = 10.sp)
             }
         }
     }
@@ -1074,6 +1124,53 @@ private fun ReleaseCard(release: ReleaseSearchResult, provider: String, store: P
             ) { Text(if (busy) "Adding…" else if (addState.startsWith("Queued")) "Queued" else if (addState.startsWith("Added")) "Added ✓" else if (addState.startsWith("Failed")) "Retry add" else "Add to ${if (provider == ProviderStore.REAL_DEBRID) "Real-Debrid" else "TorBox"}") }
         }
     }
+}
+
+private data class CalendarRelease(val item: MediaSearchResult, val releaseDate: java.time.Instant) {
+    val dayLabel: String get() = java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d", java.util.Locale.US).withZone(java.time.ZoneId.systemDefault()).format(releaseDate)
+}
+
+private fun fetchUpcomingCalendar(movies: Boolean): List<CalendarRelease> {
+    val type = if (movies) "movie" else "series"
+    val now = java.time.Instant.now()
+    val end = now.plus(92, java.time.temporal.ChronoUnit.DAYS)
+    val years = listOf(java.time.Year.now().value, java.time.Year.now().value + 1)
+    val candidates = years.flatMap { year -> runCatching { fetchCatalogTitles(type, "year", "genre", year.toString()) }.getOrDefault(emptyList()) }.distinctBy { it.id }.take(36)
+    val output = mutableListOf<CalendarRelease>()
+    for (item in candidates) {
+        val date = runCatching { fetchUpcomingDateForItem(item) }.getOrNull() ?: continue
+        if (!date.isBefore(now) && !date.isAfter(end)) output += CalendarRelease(item, date)
+    }
+    return output.sortedBy { it.releaseDate }.distinctBy { "${it.item.id}:${it.releaseDate}" }.take(60)
+}
+
+private fun fetchUpcomingDateForItem(item: MediaSearchResult): java.time.Instant? {
+    val endpoint = "https://v3-cinemeta.strem.io/meta/${if (item.type == "movie") "movie" else "series"}/${item.id}.json"
+    val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+        requestMethod = "GET"
+        connectTimeout = 10000
+        readTimeout = 12000
+        setRequestProperty("Accept", "application/json")
+        setRequestProperty("User-Agent", "DebridMediaCenter/0.8")
+    }
+    try {
+        val code = connection.responseCode
+        if (code !in 200..299) return null
+        val meta = JSONObject(connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }).optJSONObject("meta") ?: return null
+        if (item.type == "movie") return parseReleaseInstant(meta.optString("released"))
+        val videos = meta.optJSONArray("videos") ?: return parseReleaseInstant(meta.optString("released"))
+        var earliest: java.time.Instant? = null
+        for (i in 0 until videos.length()) {
+            val released = parseReleaseInstant(videos.optJSONObject(i)?.optString("released").orEmpty()) ?: continue
+            if (earliest == null || released.isBefore(earliest)) earliest = released
+        }
+        return earliest ?: parseReleaseInstant(meta.optString("released"))
+    } finally { connection.disconnect() }
+}
+
+private fun parseReleaseInstant(raw: String): java.time.Instant? {
+    if (raw.isBlank()) return null
+    return runCatching { java.time.Instant.parse(raw) }.getOrNull() ?: runCatching { java.time.OffsetDateTime.parse(raw).toInstant() }.getOrNull()
 }
 
 private fun fetchNewReleaseMovies(): List<MediaSearchResult> {
