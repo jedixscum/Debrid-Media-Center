@@ -546,6 +546,7 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, initialS
     var results by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }
     var selected by remember { mutableStateOf<MediaSearchResult?>(null) }
     var releases by remember { mutableStateOf<List<ReleaseSearchResult>>(emptyList()) }
+    var releaseSearchFailed by remember { mutableStateOf(false) }
     var provider by remember { mutableStateOf(ProviderStore.REAL_DEBRID) }
     var quality by remember { mutableStateOf("best") }
     var selectedSeason by remember { mutableIntStateOf(0) }
@@ -713,7 +714,7 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, initialS
                         (episodeFilter == "All episodes" || (episodeFilter == "Packs" && isPack) || (episodeFilter == "Individual episodes" && isEpisode))
                 }
                 items(filteredReleases, key = { it.hash }) { release -> ReleaseCard(release, provider, store, scope) { status = it } }
-                if (filteredReleases.isEmpty()) item { Text("No releases match these filters.", color = Muted, modifier = Modifier.padding(horizontal = 18.dp)) }
+                if (filteredReleases.isEmpty() && !releaseSearchFailed && releases.isNotEmpty()) item { Text("No releases match these filters.", color = Muted, modifier = Modifier.padding(horizontal = 18.dp)) }
             }
         } else if (activeTool == "magnet") {
             item {
