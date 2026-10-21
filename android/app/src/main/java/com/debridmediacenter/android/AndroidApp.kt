@@ -1,5 +1,7 @@
 package com.debridmediacenter.android
 
+// NEW_RELEASES_HOMEPAGE_V1
+
 import android.net.Uri
 import android.app.DownloadManager
 import android.os.Environment
@@ -124,7 +126,7 @@ fun DebridMediaCenterApp() {
     val stremioStore = remember { StremioAddonStore(context.applicationContext) }
     val scope = rememberCoroutineScope()
     val collectionStore = remember { MediaCollectionStore(context.applicationContext) }
-    var tab by remember { mutableIntStateOf(1) }
+    var tab by remember { mutableIntStateOf(0) }
     var playerUrl by remember { mutableStateOf<String?>(null) }
     var playerItem by remember { mutableStateOf<MediaSearchResult?>(null) }
     var resumePositionMs by remember { mutableStateOf(0L) }
@@ -208,6 +210,7 @@ fun DebridMediaCenterApp() {
                         }
                         NavigationBar(containerColor = Panel) {
                             val nav = listOf(
+                                0 to ("Home" to Icons.Default.Home),
                                 1 to ("Debrid Manager" to Icons.Default.Search),
                                 2 to ("Library" to Icons.Default.Folder),
                                 3 to ("Settings" to Icons.Default.Settings)
@@ -245,7 +248,9 @@ private fun Header(title: String, subtitle: String) {
 private fun HomeScreen(store: ProviderStore, collectionStore: MediaCollectionStore, onNavigate: (Int) -> Unit, onOpenDetails: (MediaSearchResult) -> Unit, onResume: (WatchHistoryEntry) -> Unit) {
     var movies by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }
     var shows by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }
+    var newMovies by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var newReleasesLoading by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
         val catalog = withContext(Dispatchers.IO) {
@@ -256,6 +261,9 @@ private fun HomeScreen(store: ProviderStore, collectionStore: MediaCollectionSto
         movies = catalog.first
         shows = catalog.second
         loading = false
+        newReleasesLoading = true
+        newMovies = withContext(Dispatchers.IO) { runCatching { fetchNewReleaseMovies() }.getOrDefault(emptyList()) }
+        newReleasesLoading = false
     }
 
     LazyColumn(
@@ -344,6 +352,9 @@ private fun HomeScreen(store: ProviderStore, collectionStore: MediaCollectionSto
             }
         }
         item {
+            HomeNewReleasesRow(newMovies, newReleasesLoading, onOpenDetails)
+        }
+        item {
             val history = collectionStore.continueWatching()
             if (history.isNotEmpty()) HomeHistoryRow(history, onResume)
         }
@@ -399,6 +410,44 @@ private fun HomeScreen(store: ProviderStore, collectionStore: MediaCollectionSto
                 Icon(Icons.Default.Search, contentDescription = null)
                 Spacer(Modifier.size(8.dp))
                 Text("Search all movies and shows")
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeNewReleasesRow(
+    entries: List<MediaSearchResult>,
+    loading: Boolean,
+    onOpenDetails: (MediaSearchResult) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(horizontal = 18.dp)) {
+            Text("New releases", fontSize = 19.sp, fontWeight = FontWeight.Bold)
+            Text("Movies you may not have heard about yet", color = Muted, fontSize = 11.sp)
+        }
+        if (loading && entries.isEmpty()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 18.dp), horizontalArrangement = Arrangement.Center) {
+                CircularProgressIndicator(color = Teal, modifier = Modifier.size(22.dp))
+            }
+        } else if (entries.isEmpty()) {
+            Text("No recent releases are available right now.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 18.dp))
+        } else {
+            LazyRow(contentPadding = PaddingValues(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(entries.take(20), key = { "new:${it.id}" }) { entry ->
+                    Column(Modifier.width(124.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Card(onClick = { onOpenDetails(entry) }, colors = CardDefaults.cardColors(containerColor = Panel2), shape = RoundedCornerShape(14.dp)) {
+                            AsyncImage(
+                                model = entry.posterUrl.takeIf { it.isNotBlank() },
+                                contentDescription = entry.title,
+                                modifier = Modifier.fillMaxWidth().height(178.dp),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                        Text(entry.title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                        Text(entry.year.ifBlank { "New" }, color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
     }
@@ -1025,6 +1074,15 @@ private fun ReleaseCard(release: ReleaseSearchResult, provider: String, store: P
             ) { Text(if (busy) "Adding…" else if (addState.startsWith("Queued")) "Queued" else if (addState.startsWith("Added")) "Added ✓" else if (addState.startsWith("Failed")) "Retry add" else "Add to ${if (provider == ProviderStore.REAL_DEBRID) "Real-Debrid" else "TorBox"}") }
         }
     }
+}
+
+private fun fetchNewReleaseMovies(): List<MediaSearchResult> {
+    val years = listOf(java.time.Year.now().value, java.time.Year.now().value - 1)
+    for (year in years) {
+        val rows = runCatching { fetchCatalogTitles("movie", "year", "genre", year.toString()) }.getOrDefault(emptyList())
+        if (rows.isNotEmpty()) return rows
+    }
+    return emptyList()
 }
 
 private fun searchTitles(query: String): List<MediaSearchResult> {
