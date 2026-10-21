@@ -1,15 +1,13 @@
 package com.debridmediacenter.android
 
 import android.content.Context
+import android.net.Uri
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
-import java.net.URLEncoder
 
-/** Generic Stremio addon manifest + stream client.
- * Addon URLs are stored locally; the app only requests public manifest/stream endpoints.
- */
+/** Generic Stremio addon manifest + stream client. */
 data class StremioAddon(
     val id: String,
     val name: String,
@@ -73,8 +71,11 @@ class StremioAddonStore(context: Context) {
         val safeType = when (type.lowercase()) { "movie" -> "movie"; "series", "tv" -> "series"; else -> type.lowercase() }
         return addons().flatMap { addon ->
             runCatching {
-                val endpoint = addon.manifestUrl.removeSuffix("/") + "/stream/" + safeType + "/" +
-                    URLEncoder.encode(mediaId, "UTF-8") + ".json"
+                val base = addon.manifestUrl
+                    .substringBefore('?')
+                    .removeSuffix("/manifest.json")
+                    .removeSuffix("/")
+                val endpoint = "$base/stream/$safeType/${Uri.encode(mediaId)}.json"
                 val root = getJson(endpoint)
                 val rows = root.optJSONArray("streams") ?: JSONArray()
                 (0 until rows.length()).mapNotNull { i ->
@@ -95,8 +96,8 @@ class StremioAddonStore(context: Context) {
     private fun normalizeManifestUrl(value: String): String {
         var url = value.trim()
         require(url.startsWith("https://") || url.startsWith("http://")) { "Addon URL must start with http:// or https://." }
-        if (!url.endsWith("/manifest.json")) url = url.removeSuffix("/") + "/manifest.json"
-        return url
+        val clean = url.substringBefore('?').removeSuffix("/")
+        return if (clean.endsWith("/manifest.json")) url else url.removeSuffix("/") + "/manifest.json"
     }
 
     private fun getJson(endpoint: String): JSONObject {
@@ -105,7 +106,7 @@ class StremioAddonStore(context: Context) {
             connectTimeout = 12000
             readTimeout = 18000
             setRequestProperty("Accept", "application/json")
-            setRequestProperty("User-Agent", "DebridMediaCenter-Stremio/1.0")
+            setRequestProperty("User-Agent", "DebridMediaCenter-Stremio/1.1")
         }
         try {
             val code = connection.responseCode
