@@ -547,8 +547,11 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, initialS
     var releases by remember { mutableStateOf<List<ReleaseSearchResult>>(emptyList()) }
     var provider by remember { mutableStateOf(ProviderStore.REAL_DEBRID) }
     var quality by remember { mutableStateOf("best") }
+    var selectedSeason by remember { mutableIntStateOf(0) }
+    var episodeFilter by remember { mutableStateOf("All episodes") }
     var status by remember { mutableStateOf("") }
     var magnet by remember { mutableStateOf("") }
+    var sourceLink by remember { mutableStateOf("") }
     var directUrl by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var activeTool by remember { mutableStateOf<String?>(null) }
@@ -680,7 +683,37 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, initialS
                         }
                     }
                 }
-                items(releases, key = { it.hash }) { release -> ReleaseCard(release, provider, store, scope) { status = it } }
+                if (selected!!.type != "movie" && releases.isNotEmpty()) {
+                    val seasons = releases.mapNotNull { release ->
+                        Regex("(?i)\\bS(\\d{1,2})E?\\d{0,2}\\b|\\bSeason[ ._-]?(\\d{1,2})\\b")
+                            .find(release.title)?.let { match -> (match.groupValues.getOrNull(1)?.takeIf { it.isNotBlank() } ?: match.groupValues.getOrNull(2))?.toIntOrNull() }
+                    }.distinct().sorted()
+                    item {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("SEASON / EPISODE FILTER", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                FilterChip(selectedSeason == 0, { selectedSeason = 0 }, label = { Text("All seasons") })
+                                seasons.forEach { season -> FilterChip(selectedSeason == season, { selectedSeason = season }, label = { Text("Season $season") }) }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf("All episodes", "Packs", "Individual episodes").forEach { filter ->
+                                    FilterChip(episodeFilter == filter, { episodeFilter = filter }, label = { Text(filter) })
+                                }
+                            }
+                            Text("Season/episode filters match release names. Pack and episode labels depend on what the release provider returns.", color = Muted, fontSize = 10.sp)
+                        }
+                    }
+                }
+                val filteredReleases = releases.filter { release ->
+                    val seasonMatch = Regex("(?i)\\bS(\\d{1,2})E?\\d{0,2}\\b|\\bSeason[ ._-]?(\\d{1,2})\\b").find(release.title)
+                    val season = seasonMatch?.let { m -> (m.groupValues.getOrNull(1)?.takeIf { it.isNotBlank() } ?: m.groupValues.getOrNull(2))?.toIntOrNull() }
+                    val isPack = Regex("(?i)\\b(pack|complete|全|season\\s*\\d+|S\\d{1,2}\\s*(?:complete|pack))\\b").containsMatchIn(release.title)
+                    val isEpisode = Regex("(?i)\\bS\\d{1,2}E\\d{1,2}\\b").containsMatchIn(release.title)
+                    (selectedSeason == 0 || season == null || season == selectedSeason) &&
+                        (episodeFilter == "All episodes" || (episodeFilter == "Packs" && isPack) || (episodeFilter == "Individual episodes" && isEpisode))
+                }
+                items(filteredReleases, key = { it.hash }) { release -> ReleaseCard(release, provider, store, scope) { status = it } }
+                if (filteredReleases.isEmpty()) item { Text("No releases match these filters.", color = Muted, modifier = Modifier.padding(horizontal = 18.dp)) }
             }
         } else if (activeTool == "magnet") {
             item {
@@ -699,7 +732,12 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, initialS
                                 busy = false
                                 result.onSuccess { status = it; magnet = "" }.onFailure { status = it.message ?: "Could not add magnet." }
                             }
-                        }, enabled = !busy && magnet.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Adding…" else "Add to provider") }
+                        }, enabled = !busy && magnet.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Adding magnet…" else "Add magnet to provider") }
+                        Divider(color = Panel2)
+                        Text("TORRENT / DOWNLOAD LINK", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        OutlinedTextField(sourceLink, { sourceLink = it }, label = { Text("HTTP(S) link") }, placeholder = { Text("Direct .torrent URL or supported provider link") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        Text("Direct torrent-file URLs and general download links require provider-specific handling; this field is reserved until that submission path is implemented.", color = Muted, fontSize = 10.sp)
+                        if (status.isNotBlank()) Text(status, color = Muted, fontSize = 11.sp)
                         if (status.isNotBlank()) Text(status, color = Muted, fontSize = 11.sp)
                     }
                 }
