@@ -119,7 +119,7 @@ private fun applyDmcTheme(name: String) {
 }
 
 @Composable
-fun DebridMediaCenterApp() {
+fun DebridMediaCenterApp(onHome: (() -> Unit)? = null) {
     val context = LocalContext.current
     val settings = remember { context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE) }
     val themeName = remember { mutableStateOf(settings.getString("theme", "Dark Teal") ?: "Dark Teal") }
@@ -178,6 +178,22 @@ fun DebridMediaCenterApp() {
                 )
                 else -> {
                     Column(Modifier.fillMaxSize()) {
+                        if (onHome != null) {
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Box(Modifier.size(34.dp).background(Teal.copy(alpha = 0.14f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Teal, modifier = Modifier.size(23.dp))
+                                }
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                    Text("DEBRID MEDIA CENTER", color = ThemeText, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                                    Text("Library & provider manager", color = Muted, fontSize = 10.sp)
+                                }
+                                TextButton(onClick = { onHome() }) {
+                                    Icon(Icons.Default.Home, contentDescription = "Home", modifier = Modifier.size(17.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Home", fontSize = 12.sp)
+                                }
+                            }
+                        }
                         Column(Modifier.weight(1f).fillMaxWidth()) {
                             when (tab) {
                                 0 -> HomeScreen(

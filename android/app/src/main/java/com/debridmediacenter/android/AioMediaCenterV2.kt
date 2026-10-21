@@ -83,13 +83,7 @@ fun AioMediaCenterV2App() {
                     onStreaming = { mode = V2Mode.STREAMING }
                 )
                 mode == V2Mode.DEBRID -> Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars)) {
-                    DebridMediaCenterApp()
-                    Row(Modifier.align(Alignment.TopStart).padding(start = 8.dp, top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = { mode = V2Mode.HOME }) {
-                            Icon(Icons.Default.Home, contentDescription = "Home", modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(5.dp)); Text("Home", fontSize = 12.sp)
-                        }
-                    }
+                    DebridMediaCenterApp(onHome = { mode = V2Mode.HOME })
                 }
                 else -> V2Streaming(
                     tab = tab, onTab = { tab = it }, selected = selected,
