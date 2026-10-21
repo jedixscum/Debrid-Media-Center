@@ -512,19 +512,19 @@ private fun V2Loading() {
 private fun V2Player(title: String, url: String, onClose: () -> Unit) {
     val context = LocalContext.current
     var error by remember(url) { mutableStateOf("") }
-    val player = remember(url) {
+    val exoPlayer = remember(url) {
         androidx.media3.exoplayer.ExoPlayer.Builder(context).build().apply {
             setMediaItem(androidx.media3.common.MediaItem.fromUri(Uri.parse(url)))
             playWhenReady = true
             prepare()
         }
     }
-    DisposableEffect(player) {
+    DisposableEffect(exoPlayer) {
         val listener = object : androidx.media3.common.Player.Listener {
             override fun onPlayerError(e: androidx.media3.common.PlaybackException) { error = e.message ?: e.errorCodeName }
         }
-        player.addListener(listener)
-        onDispose { player.removeListener(listener); player.release() }
+        exoPlayer.addListener(listener)
+        onDispose { exoPlayer.removeListener(listener); exoPlayer.release() }
     }
     Column(Modifier.fillMaxSize().background(Color.Black)) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -536,8 +536,8 @@ private fun V2Player(title: String, url: String, onClose: () -> Unit) {
         }
         if (error.isNotBlank()) Text("Playback failed: $error", color = Color(0xFFFF9B9B), fontSize = 12.sp, modifier = Modifier.padding(14.dp))
         androidx.compose.ui.viewinterop.AndroidView(
-            factory = { PlayerView(it).apply { player = player; useController = true } },
-            update = { it.player = player },
+            factory = { PlayerView(it).apply { this.player = exoPlayer; useController = true } },
+            update = { it.player = exoPlayer },
             modifier = Modifier.fillMaxWidth().weight(1f)
         )
     }
