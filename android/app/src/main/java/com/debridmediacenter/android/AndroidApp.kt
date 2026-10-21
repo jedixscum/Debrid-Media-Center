@@ -569,6 +569,7 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, initialS
     var results by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }
     var lastSearch by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
     var selected by remember { mutableStateOf<MediaSearchResult?>(null) }
     var releases by remember { mutableStateOf<List<ReleaseSearchResult>>(emptyList()) }
     var releaseSearchFailed by remember { mutableStateOf(false) }
