@@ -99,7 +99,7 @@ fun DebridMediaCenterApp() {
     val stremioStore = remember { StremioAddonStore(context.applicationContext) }
     val scope = rememberCoroutineScope()
     val collectionStore = remember { MediaCollectionStore(context.applicationContext) }
-    var tab by remember { mutableIntStateOf(0) }
+    var tab by remember { mutableIntStateOf(1) }
     var playerUrl by remember { mutableStateOf<String?>(null) }
     var playerItem by remember { mutableStateOf<MediaSearchResult?>(null) }
     var resumePositionMs by remember { mutableStateOf(0L) }
@@ -186,15 +186,16 @@ fun DebridMediaCenterApp() {
                         }
                         NavigationBar(containerColor = Panel) {
                             val nav = listOf(
-                                "Home" to Icons.Default.Home,
-                                "Discover" to Icons.Default.Search,
-                                "Library" to Icons.Default.Folder,
-                                "Settings" to Icons.Default.Settings
+                                1 to ("Debrid Manager" to Icons.Default.Search),
+                                2 to ("Library" to Icons.Default.Folder),
+                                3 to ("Settings" to Icons.Default.Settings)
                             )
-                            nav.forEachIndexed { index, item ->
+                            nav.forEach { entry ->
+                                val destination = entry.first
+                                val item = entry.second
                                 NavigationBarItem(
-                                    selected = tab == index,
-                                    onClick = { navigateTo(index) },
+                                    selected = tab == destination,
+                                    onClick = { navigateTo(destination) },
                                     icon = { Icon(item.second, contentDescription = item.first) },
                                     label = { Text(item.first, fontSize = 9.sp) }
                                 )
