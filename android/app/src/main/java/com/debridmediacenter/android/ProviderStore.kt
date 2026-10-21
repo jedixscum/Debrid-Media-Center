@@ -269,7 +269,19 @@ class ProviderStore(context: Context) {
             require(hasToken(TORBOX)) {
                 "Connect TorBox to search releases automatically, or add a DMM sponsor API key in Settings to use DMM release search."
             }
-            return searchTorBoxReleases(imdbId, quality)
+            return try {
+                searchTorBoxReleases(imdbId, quality)
+            } catch (torboxError: Exception) {
+                // Keep search usable when TorBox's separate search host is unreachable.
+                runCatching { searchTorrentioReleases(imdbId, mediaType, quality) }
+                    .getOrElse { fallbackError ->
+                        throw IllegalStateException(
+                            "Automatic release search failed. TorBox search: ${torboxError.message ?: "unavailable"}. " +
+                                "Alternative search: ${fallbackError.message ?: "unavailable"}.",
+                            fallbackError
+                        )
+                    }
+            }
         }
         val connection = (URL("https://debridmediamanager.com/api/zurg/search-torrents").openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -387,6 +399,53 @@ class ProviderStore(context: Context) {
                 "TorBox's release-search service timed out. Try again later, or add a DMM sponsor API key in Settings for DMM-powered search.",
                 e
             )
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    /**
+     * Public Stremio-compatible catalog fallback. It supplies release hashes/titles without
+     * requiring a DMM sponsor key; provider credentials are still used only when adding a hash.
+     */
+    private fun searchTorrentioReleases(imdbId: String, mediaType: String, quality: String): List<ReleaseSearchResult> {
+        val contentPath = if (mediaType == "movie") "movie/$imdbId" else "series/$imdbId:1:1"
+        val connection = (URL("https://torrentio.strem.fun/stream/$contentPath.json").openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 12000
+            readTimeout = 20000
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("User-Agent", "DebridMediaCenter/0.7")
+        }
+        try {
+            val code = connection.responseCode
+            val body = (if (code in 200..299) connection.inputStream else connection.errorStream)
+                ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            if (code !in 200..299) throw IllegalStateException("Alternative release catalog returned HTTP $code.")
+            val root = JSONObject(body)
+            val streams = root.optJSONArray("streams")
+                ?: throw IllegalStateException("Alternative release catalog returned no stream list.")
+            val results = mutableListOf<ReleaseSearchResult>()
+            val sizePattern = Regex("(?i)(\\d+(?:[.,]\\d+)?)\\s*(GB|MB)")
+            for (i in 0 until streams.length()) {
+                val stream = streams.optJSONObject(i) ?: continue
+                val title = stream.optString("title").takeIf { it.isNotBlank() && it != "null" } ?: continue
+                val hash = stream.optString("infoHash").lowercase()
+                    .takeIf { it.matches(Regex("^[a-f0-9]{40}$")) } ?: continue
+                val match = sizePattern.find(title)
+                val sizeMb = match?.let {
+                    val amount = it.groupValues[1].replace(',', '.').toDoubleOrNull() ?: 0.0
+                    if (it.groupValues[2].equals("GB", true)) amount * 1024.0 else amount
+                } ?: 0.0
+                results.add(ReleaseSearchResult(title, hash, sizeMb))
+            }
+            val unique = results.distinctBy { it.hash }
+            val filtered = if (quality == "best") unique else unique.filter { release ->
+                release.title.contains(quality, ignoreCase = true) ||
+                    (quality == "2160p" && release.title.contains("4k", ignoreCase = true))
+            }
+            return (filtered.ifEmpty { if (quality == "best") unique else emptyList() })
+                .sortedByDescending { it.sizeMb }
         } finally {
             connection.disconnect()
         }
