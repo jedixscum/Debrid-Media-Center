@@ -1730,6 +1730,37 @@ private fun SettingsScreen(store: ProviderStore, scope: CoroutineScope, collecti
     val historyCount = remember(historyRevision) { collectionStore.history().size }
     var compactPosters by remember { mutableStateOf(preferences.getBoolean("compact_posters", false)) }
     var showOverview by remember { mutableStateOf(preferences.getBoolean("show_overview", true)) }
+    var credentialTransferStatus by remember { mutableStateOf("") }
+    val exportCredentialsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) {
+            credentialTransferStatus = runCatching {
+                val backup = JSONObject().put("format", "debrid-media-center-credentials").put("version", 1)
+                listOf(ProviderStore.REAL_DEBRID, ProviderStore.TORBOX, ProviderStore.DMM).forEach { provider ->
+                    store.readToken(provider)?.let { backup.put(provider, it) }
+                }
+                context.contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use { it.write(backup.toString(2)) }
+                    ?: error("Could not write the backup file.")
+                "Credentials exported. Keep the backup file private; it contains readable API keys."
+            }.getOrElse { "Export failed: ${it.message ?: "unknown error"}" }
+        }
+    }
+    val importCredentialsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            credentialTransferStatus = runCatching {
+                val raw = context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                    ?: error("Could not read the selected file.")
+                val backup = JSONObject(raw)
+                require(backup.optString("format") == "debrid-media-center-credentials") { "This is not a Debrid Media Center credentials backup." }
+                require(backup.optInt("version", 0) == 1) { "This backup version is not supported." }
+                var imported = 0
+                listOf(ProviderStore.REAL_DEBRID, ProviderStore.TORBOX, ProviderStore.DMM).forEach { provider ->
+                    val token = backup.optString(provider).trim()
+                    if (token.isNotEmpty() && token != "null") { store.saveToken(provider, token); imported++ }
+                }
+                "Imported $imported provider key(s). Keys are encrypted again on this device."
+            }.getOrElse { "Import failed: ${it.message ?: "unknown error"}" }
+        }
+    }
 
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -1741,6 +1772,24 @@ private fun SettingsScreen(store: ProviderStore, scope: CoroutineScope, collecti
                 ProviderCard(store, scope, ProviderStore.REAL_DEBRID, "Real-Debrid")
                 ProviderCard(store, scope, ProviderStore.TORBOX, "TorBox")
                 ProviderCard(store, scope, ProviderStore.DMM, "DMM sponsor API")
+            }
+        }
+        item {
+            SettingsSection("API KEY BACKUP", "Move your Real-Debrid, TorBox, and DMM keys to another device without retyping them.") {
+                OutlinedButton(onClick = { exportCredentialsLauncher.launch("debrid-media-center-credentials.json") }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Download, contentDescription = null)
+                    Spacer(Modifier.size(8.dp))
+                    Text("Export API keys")
+                }
+                OutlinedButton(onClick = { importCredentialsLauncher.launch(arrayOf("application/json", "text/*")) }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Folder, contentDescription = null)
+                    Spacer(Modifier.size(8.dp))
+                    Text("Import API keys")
+                }
+                Text("The backup file contains readable API keys. Save it somewhere private and delete it when finished. Import adds keys present in the file and leaves other saved keys unchanged.", color = Muted, fontSize = 11.sp)
+                if (credentialTransferStatus.isNotBlank()) {
+                    Text(credentialTransferStatus, color = if (credentialTransferStatus.startsWith("Import failed") || credentialTransferStatus.startsWith("Export failed")) Color(0xFFFFB4AB) else Teal, fontSize = 12.sp)
+                }
             }
         }
         item {
