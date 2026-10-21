@@ -88,17 +88,27 @@ fun AioMediaCenterV2App() {
                     ) {
                         Icon(Icons.Default.Home, null, Modifier.size(16.dp))
                         Spacer(Modifier.width(5.dp))
-                        Text("DEBRID MANAGER", fontSize = 10.sp)
+                        Text("HOME", fontSize = 10.sp)
                     }
                 }
-                else -> V2Streaming(
-                    tab = tab,
-                    onTab = { tab = it },
-                    selected = selected,
-                    onSelect = { selected = it },
-                    onBack = { selected = null },
-                    onPlay = { title, url -> player = title to url }
-                )
+                else -> Box(Modifier.fillMaxSize()) {
+                    V2Streaming(
+                        tab = tab,
+                        onTab = { tab = it },
+                        selected = selected,
+                        onSelect = { selected = it },
+                        onBack = { selected = null },
+                        onPlay = { title, url -> player = title to url }
+                    )
+                    OutlinedButton(
+                        onClick = { mode = V2Mode.HOME; selected = null; tab = V2Tab.HOME },
+                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp)
+                    ) {
+                        Icon(Icons.Default.Home, contentDescription = "Home", modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(5.dp))
+                        Text("HOME", fontSize = 10.sp)
+                    }
+                }
             }
         }
     }
