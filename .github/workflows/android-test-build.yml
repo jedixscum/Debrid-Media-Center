@@ -1,3 +1,4 @@
+# Rebuild Android APK after navigation UI updates
 name: Android APK test build
 
 on:
