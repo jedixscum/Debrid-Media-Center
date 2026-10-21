@@ -1,6 +1,7 @@
 package com.debridmediacenter.android
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -102,6 +103,23 @@ fun DebridMediaCenterApp() {
     var resumePositionMs by remember { mutableStateOf(0L) }
     var detailsItem by remember { mutableStateOf<MediaSearchResult?>(null) }
     var pendingSelection by remember { mutableStateOf<MediaSearchResult?>(null) }
+    val backStack = remember { mutableStateOf(listOf<Int>()) }
+    fun navigateTo(destination: Int) {
+        if (destination != tab) {
+            backStack.value = backStack.value + tab
+            tab = destination
+        }
+    }
+    BackHandler(enabled = playerUrl != null || detailsItem != null || backStack.value.isNotEmpty()) {
+        when {
+            playerUrl != null -> { playerUrl = null; playerItem = null; resumePositionMs = 0L }
+            detailsItem != null -> detailsItem = null
+            backStack.value.isNotEmpty() -> {
+                tab = backStack.value.last()
+                backStack.value = backStack.value.dropLast(1)
+            }
+        }
+    }
 
     MaterialTheme(colorScheme = darkColorScheme(primary = Teal, background = Bg, surface = Panel)) {
         Surface(Modifier.fillMaxSize(), color = Bg, contentColor = Color.White) {
@@ -127,7 +145,7 @@ fun DebridMediaCenterApp() {
                                 0 -> HomeScreen(
                                     store = store,
                                     collectionStore = collectionStore,
-                                    onNavigate = { tab = it },
+                                    onNavigate = { navigateTo(it) },
                                     onOpenDetails = { detailsItem = it },
                                     onResume = { entry ->
                                         val savedUrl = collectionStore.playbackUrl(entry)
@@ -155,7 +173,7 @@ fun DebridMediaCenterApp() {
                                     resumePositionMs = 0L
                                     playerUrl = url
                                 })
-                                else -> SettingsScreen(store, scope, collectionStore) { destination -> tab = destination }
+                                else -> SettingsScreen(store, scope, collectionStore) { destination -> navigateTo(destination) }
                             }
                         }
                         NavigationBar(containerColor = Panel) {
@@ -168,7 +186,7 @@ fun DebridMediaCenterApp() {
                             nav.forEachIndexed { index, item ->
                                 NavigationBarItem(
                                     selected = tab == index,
-                                    onClick = { tab = index },
+                                    onClick = { navigateTo(index) },
                                     icon = { Icon(item.second, contentDescription = item.first) },
                                     label = { Text(item.first, fontSize = 9.sp) }
                                 )
@@ -971,6 +989,7 @@ private fun LibraryScreen(
     var error by remember { mutableStateOf("") }
     var notice by remember { mutableStateOf("") }
     var playingId by remember { mutableStateOf<String?>(null) }
+    var selectedProvider by remember { mutableStateOf("all") }
 
     fun loadLibrary() {
         if (loading) return
@@ -1018,7 +1037,14 @@ private fun LibraryScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(bottom = 28.dp)
     ) {
-        item { Header("Library", "Your Real-Debrid and TorBox downloads, together.") }
+        item { Header("Library", "Browse each debrid provider separately.") }
+        item {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("all" to "All", ProviderStore.TORBOX to "TorBox", ProviderStore.REAL_DEBRID to "Real-Debrid").forEach { (key, label) ->
+                    FilterChip(selected = selectedProvider == key, onClick = { selectedProvider = key }, modifier = Modifier.weight(1f), label = { Text(label, fontSize = 11.sp) })
+                }
+            }
+        }
         item {
             Card(
                 Modifier.fillMaxWidth().padding(horizontal = 18.dp),
@@ -1094,7 +1120,11 @@ private fun LibraryScreen(
                 }
             }
         }
-        items(items, key = { "${it.provider}:${it.id}:${it.title}" }) { item ->
+        val visibleItems = items.filter { selectedProvider == "all" || it.provider == selectedProvider }
+        if (loaded && visibleItems.isEmpty() && items.isNotEmpty()) {
+            item { Text(if (selectedProvider == ProviderStore.TORBOX) "No TorBox items were returned." else "No Real-Debrid items were returned.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) }
+        }
+        items(visibleItems, key = { "${it.provider}:${it.id}:${it.title}" }) { item ->
             var playBusy by remember(item.id) { mutableStateOf(false) }
             Card(
                 Modifier.fillMaxWidth().padding(horizontal = 18.dp),
@@ -1588,7 +1618,10 @@ private fun MediaDetailsScreen(
                             }
                             episodes.filter { it.season == selectedSeason }.forEach { episode ->
                                 Card(
-                                    modifier = Modifier.fillMaxWidth().clickable { selectedEpisode = episode },
+                                    modifier = Modifier.fillMaxWidth().clickable {
+                                        selectedEpisode = episode
+                                        releaseStatus = "Selected S" + episode.season.toString().padStart(2, '0') + "E" + episode.episode.toString().padStart(2, '0') + ". Check releases for the matching episode label."
+                                    },
                                     colors = CardDefaults.cardColors(containerColor = if (selectedEpisode?.id == episode.id) Panel2 else Panel),
                                     shape = RoundedCornerShape(14.dp)
                                 ) {
@@ -1623,7 +1656,7 @@ private fun MediaDetailsScreen(
                                     "Selected: S" + episode.season.toString().padStart(2, '0') + "E" + episode.episode.toString().padStart(2, '0') + " · " + episode.title,
                                     color = Teal, fontSize = 12.sp, fontWeight = FontWeight.SemiBold
                                 )
-                                Text("Release matches below are for the show. Look for this episode's S" + episode.season.toString().padStart(2, '0') + "E" + episode.episode.toString().padStart(2, '0') + " label.", color = Muted, fontSize = 11.sp)
+                                Text("Tap an episode to select it, then use the matching S" + episode.season.toString().padStart(2, '0') + "E" + episode.episode.toString().padStart(2, '0') + " release label when available.", color = Muted, fontSize = 11.sp)
                             }
                         }
                     }
