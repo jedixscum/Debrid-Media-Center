@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -95,6 +96,7 @@ private val Muted = Color(0xFF91A5AE)
 fun DebridMediaCenterApp() {
     val context = LocalContext.current
     val store = remember { ProviderStore(context.applicationContext) }
+    val stremioStore = remember { StremioAddonStore(context.applicationContext) }
     val scope = rememberCoroutineScope()
     val collectionStore = remember { MediaCollectionStore(context.applicationContext) }
     var tab by remember { mutableIntStateOf(0) }
@@ -136,6 +138,12 @@ fun DebridMediaCenterApp() {
                     store = store,
                     scope = scope,
                     collectionStore = collectionStore,
+                    stremioStore = stremioStore,
+                    onPlayStream = { url, title ->
+                        playerItem = detailsItem!!.copy(title = title)
+                        resumePositionMs = 0L
+                        playerUrl = url
+                    },
                     onBack = { detailsItem = null }
                 )
                 else -> {
@@ -1477,6 +1485,8 @@ private fun MediaDetailsScreen(
     store: ProviderStore,
     scope: CoroutineScope,
     collectionStore: MediaCollectionStore,
+    stremioStore: StremioAddonStore,
+    onPlayStream: (String, String) -> Unit,
     onBack: () -> Unit
 ) {
     var saved by remember(item.id) { mutableStateOf(collectionStore.isSaved(item)) }
@@ -1487,6 +1497,11 @@ private fun MediaDetailsScreen(
     var releaseBusy by remember(item.id) { mutableStateOf(false) }
     var selectedSeason by remember(item.id) { mutableIntStateOf(0) }
     var selectedEpisode by remember(item.id) { mutableStateOf<EpisodeInfo?>(null) }
+    var showStreamPicker by remember(item.id) { mutableStateOf(false) }
+    var streamBusy by remember(item.id) { mutableStateOf(false) }
+    var streamError by remember(item.id) { mutableStateOf("") }
+    var episodeStreams by remember(item.id) { mutableStateOf<List<StremioStream>>(emptyList()) }
+    var selectedResolution by remember(item.id) { mutableStateOf("All") }
     val connectedProviders = listOf(ProviderStore.REAL_DEBRID, ProviderStore.TORBOX).filter { store.hasToken(it) }
 
     LaunchedEffect(item.id) {
@@ -1509,6 +1524,95 @@ private fun MediaDetailsScreen(
                 releaseStatus = if (it.isEmpty()) "No matching releases were returned. Try another title or quality in Discover." else "Found ${it.size} releases."
             }.onFailure { releaseStatus = it.message ?: "Release search failed." }
         }
+    }
+
+
+    if (showStreamPicker) {
+        val resolutions = listOf("All", "2160p", "1080p", "720p", "480p", "Other")
+        fun streamResolution(stream: StremioStream): String {
+            val text = (stream.title + " " + stream.name).uppercase()
+            return when {
+                Regex("\\b(2160P|4K|UHD)\\b").containsMatchIn(text) -> "2160p"
+                Regex("\\b(1080P|FHD)\\b").containsMatchIn(text) -> "1080p"
+                Regex("\\b(720P|HD)\\b").containsMatchIn(text) -> "720p"
+                Regex("\\b(480P|SD)\\b").containsMatchIn(text) -> "480p"
+                else -> "Other"
+            }
+        }
+        val visibleStreams = episodeStreams.filter { selectedResolution == "All" || streamResolution(it) == selectedResolution }
+        AlertDialog(
+            onDismissRequest = { showStreamPicker = false },
+            containerColor = Panel,
+            title = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("CHOOSE A STREAM", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+                    Text(selectedEpisode?.let { "S" + it.season.toString().padStart(2, '0') + "E" + it.episode.toString().padStart(2, '0') + " · " + it.title } ?: item.title, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(Modifier.fillMaxWidth().height(410.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (streamBusy) {
+                        Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                CircularProgressIndicator(color = Teal)
+                                Text("Checking installed add-ons…", color = Muted, fontSize = 12.sp)
+                            }
+                        }
+                    } else if (episodeStreams.isEmpty()) {
+                        Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                            Text(streamError.ifBlank { "No streams found." }, color = Muted, fontSize = 12.sp)
+                        }
+                    } else {
+                        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Column(Modifier.width(92.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("QUALITY", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                resolutions.forEach { resolution ->
+                                    val count = if (resolution == "All") episodeStreams.size else episodeStreams.count { streamResolution(it) == resolution }
+                                    if (resolution == "All" || count > 0) {
+                                        Card(
+                                            onClick = { selectedResolution = resolution },
+                                            colors = CardDefaults.cardColors(containerColor = if (selectedResolution == resolution) Panel2 else Bg),
+                                            shape = RoundedCornerShape(10.dp)
+                                        ) {
+                                            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Text(resolution, color = if (selectedResolution == resolution) Teal else Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                                                Text(count.toString(), color = Muted, fontSize = 10.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                items(visibleStreams, key = { it.addonId + it.url }) { stream ->
+                                    Card(
+                                        onClick = {
+                                            showStreamPicker = false
+                                            val label = selectedEpisode?.let { item.title + " · S" + it.season + "E" + it.episode + " · " + stream.title } ?: stream.title
+                                            onPlayStream(stream.url, label)
+                                        },
+                                        colors = CardDefaults.cardColors(containerColor = Panel2),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                            Text(streamResolution(stream), color = Teal, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                            Text(stream.title, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 4)
+                                            Text(stream.name, color = Muted, fontSize = 10.sp, maxLines = 2)
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Teal, modifier = Modifier.size(15.dp))
+                                                Text("Play stream", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                                if (visibleStreams.isEmpty()) item { Text("No streams at this resolution.", color = Muted, fontSize = 11.sp) }
+                            }
+                        }
+                    }
+                    if (streamError.isNotBlank() && episodeStreams.isNotEmpty()) Text(streamError, color = Muted, fontSize = 10.sp)
+                }
+            },
+            confirmButton = { TextButton(onClick = { showStreamPicker = false }) { Text("Close", color = Teal) } }
+        )
     }
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(bottom = 28.dp)) {
@@ -1620,7 +1724,24 @@ private fun MediaDetailsScreen(
                                 Card(
                                     modifier = Modifier.fillMaxWidth().clickable {
                                         selectedEpisode = episode
-                                        releaseStatus = "Selected S" + episode.season.toString().padStart(2, '0') + "E" + episode.episode.toString().padStart(2, '0') + ". Check releases for the matching episode label."
+                                        showStreamPicker = true
+                                        streamBusy = true
+                                        streamError = ""
+                                        episodeStreams = emptyList()
+                                        selectedResolution = "All"
+                                        scope.launch {
+                                            val episodeId = item.id + ":" + episode.season + ":" + episode.episode
+                                            val result = withContext(Dispatchers.IO) {
+                                                runCatching { stremioStore.streams("series", episodeId) }
+                                            }
+                                            streamBusy = false
+                                            result.onSuccess { streams ->
+                                                episodeStreams = streams
+                                                if (streams.isEmpty()) streamError = if (stremioStore.addons().isEmpty()) {
+                                                    "No add-ons are installed yet. Add Stremio add-ons from the Streaming Add-ons page."
+                                                } else "No direct-play streams were returned for this episode. Try another add-on or episode."
+                                            }.onFailure { streamError = it.message ?: "Could not load streams from add-ons." }
+                                        }
                                     },
                                     colors = CardDefaults.cardColors(containerColor = if (selectedEpisode?.id == episode.id) Panel2 else Panel),
                                     shape = RoundedCornerShape(14.dp)
@@ -1651,13 +1772,7 @@ private fun MediaDetailsScreen(
                                     }
                                 }
                             }
-                            selectedEpisode?.let { episode ->
-                                Text(
-                                    "Selected: S" + episode.season.toString().padStart(2, '0') + "E" + episode.episode.toString().padStart(2, '0') + " · " + episode.title,
-                                    color = Teal, fontSize = 12.sp, fontWeight = FontWeight.SemiBold
-                                )
-                                Text("Tap an episode to select it, then use the matching S" + episode.season.toString().padStart(2, '0') + "E" + episode.episode.toString().padStart(2, '0') + " release label when available.", color = Muted, fontSize = 11.sp)
-                            }
+                            Text("Tap an episode to open its stream picker. Choose a resolution on the left, then select a stream to play.", color = Muted, fontSize = 11.sp)
                         }
                     }
                 }
