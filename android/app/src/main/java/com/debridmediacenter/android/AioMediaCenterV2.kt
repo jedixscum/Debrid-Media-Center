@@ -320,8 +320,9 @@ private fun V2AddonCatalogBrowser(onSelect: (V2Title) -> Unit) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 26.dp)) {
         item { V2Header("Discover", "Browse collections published by your installed add-ons.") }
         if (selected == null) {
+            item { V2TraktCatalogManager(onSelect) }
             item {
-                OutlinedButton(onClick = { refreshKey++ }, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp)) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(5.dp)); Text("Refresh catalogs") }
+                OutlinedButton(onClick = { refreshKey++ }, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp)) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(5.dp)); Text("Refresh add-on catalogs") }
             }
             if (catalogs.isEmpty()) item {
                 Card(Modifier.fillMaxWidth().padding(horizontal = 18.dp), colors = CardDefaults.cardColors(V2Panel), shape = RoundedCornerShape(18.dp)) {
