@@ -757,6 +757,150 @@ class ProviderStore(context: Context) {
         }
     }
 
+
+    /**
+     * Resolves a download URL for the exact file selected by the user in Library.
+     * Unlike resolvePlaybackUrl, this never silently chooses another video in the torrent.
+     */
+    fun resolveLibraryFileDownloadUrl(provider: String, itemId: String, fileName: String): String {
+        val secret = readToken(provider)?.trim().orEmpty()
+        require(secret.isNotEmpty()) { "Connect this provider in Services first." }
+        require(itemId.isNotBlank()) { "This library item has no provider ID." }
+        require(fileName.isNotBlank()) { "Select a file first." }
+
+        fun matches(candidate: String): Boolean {
+            val wanted = fileName.replace('\\', '/').trim()
+            val actual = candidate.replace('\\', '/').trim()
+            return actual.equals(wanted, ignoreCase = true) ||
+                actual.substringAfterLast('/').equals(wanted.substringAfterLast('/'), ignoreCase = true)
+        }
+
+        return when (provider) {
+            REAL_DEBRID -> {
+                val connection = (URL("https://api.real-debrid.com/rest/1.0/torrents/info/" +
+                    URLEncoder.encode(itemId, "UTF-8")).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 12000
+                    readTimeout = 18000
+                    setRequestProperty("Authorization", "Bearer $secret")
+                    setRequestProperty("Accept", "application/json")
+                }
+                val info = try {
+                    val code = connection.responseCode
+                    val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+                    val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                    if (code !in 200..299) throw IllegalStateException("Could not inspect Real-Debrid item (HTTP $code).")
+                    JSONObject(body)
+                } finally { connection.disconnect() }
+                val status = info.optString("status")
+                if (status != "downloaded") throw IllegalStateException("This item is not ready to download yet (status: $status).")
+                val files = info.optJSONArray("files") ?: org.json.JSONArray()
+                val links = info.optJSONArray("links") ?: org.json.JSONArray()
+                var selectedIndex = 0
+                var targetLink: String? = null
+                var targetFound = false
+                for (i in 0 until files.length()) {
+                    val file = files.optJSONObject(i) ?: continue
+                    val path = file.optString("path").ifBlank { file.optString("name") }
+                    val selected = file.optInt("selected", 0) == 1
+                    if (selected) {
+                        val link = if (selectedIndex < links.length()) links.optString(selectedIndex) else ""
+                        if (matches(path)) {
+                            targetFound = true
+                            if (link.startsWith("http")) targetLink = link
+                        }
+                        selectedIndex++
+                    } else if (matches(path)) {
+                        targetFound = true
+                    }
+                }
+                if (!targetFound) throw IllegalStateException("That file was not found in the current Real-Debrid item. Refresh the library and try again.")
+                if (targetLink == null) throw IllegalStateException("This file is not selected in Real-Debrid. Select this file in Real-Debrid first, then refresh the library details.")
+                val unrestrict = (URL("https://api.real-debrid.com/rest/1.0/unrestrict/link").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    doOutput = true
+                    connectTimeout = 12000
+                    readTimeout = 20000
+                    setRequestProperty("Authorization", "Bearer $secret")
+                    setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+                    setRequestProperty("Accept", "application/json")
+                }
+                try {
+                    OutputStreamWriter(unrestrict.outputStream, Charsets.UTF_8).use {
+                        it.write("link=" + URLEncoder.encode(targetLink, "UTF-8"))
+                    }
+                    val code = unrestrict.responseCode
+                    val stream = if (code in 200..299) unrestrict.inputStream else unrestrict.errorStream
+                    val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                    if (code !in 200..299) throw IllegalStateException("Could not resolve the selected Real-Debrid file (HTTP $code).")
+                    JSONObject(body).optString("download").takeIf { it.startsWith("https://") || it.startsWith("http://") }
+                        ?: throw IllegalStateException("Real-Debrid did not return a download link for this file.")
+                } finally { unrestrict.disconnect() }
+            }
+            TORBOX -> {
+                val connection = (URL("https://api.torbox.app/v1/api/torrents/mylist?id=" +
+                    URLEncoder.encode(itemId, "UTF-8")).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 12000
+                    readTimeout = 18000
+                    setRequestProperty("Authorization", "Bearer $secret")
+                    setRequestProperty("Accept", "application/json")
+                }
+                val item = try {
+                    val code = connection.responseCode
+                    val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+                    val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                    if (code !in 200..299) throw IllegalStateException("Could not inspect TorBox item (HTTP $code).")
+                    val root = JSONObject(body)
+                    if (root.has("success") && !root.optBoolean("success", false)) {
+                        throw IllegalStateException(root.optString("detail").ifBlank { "TorBox could not inspect this item." })
+                    }
+                    when (val data = root.opt("data")) {
+                        is JSONObject -> data
+                        is org.json.JSONArray -> (0 until data.length()).mapNotNull { data.optJSONObject(it) }
+                            .firstOrNull { it.optString("id") == itemId } ?: data.optJSONObject(0)
+                        else -> null
+                    } ?: throw IllegalStateException("TorBox returned no details for this item.")
+                } finally { connection.disconnect() }
+                val files = item.optJSONArray("files") ?: org.json.JSONArray()
+                var selectedFileId: String? = null
+                var found = false
+                for (i in 0 until files.length()) {
+                    val file = files.optJSONObject(i) ?: continue
+                    val name = file.optString("name").ifBlank { file.optString("short_name") }
+                    if (matches(name)) {
+                        found = true
+                        selectedFileId = file.opt("id")?.toString()?.takeIf { it.isNotBlank() && it != "null" }
+                        break
+                    }
+                }
+                if (!found) throw IllegalStateException("That file was not found in the current TorBox item. Refresh the library and try again.")
+                val fileId = selectedFileId ?: throw IllegalStateException("TorBox did not provide an ID for this file.")
+                val endpoint = "https://api.torbox.app/v1/api/torrents/requestdl?token=" +
+                    URLEncoder.encode(secret, "UTF-8") + "&torrent_id=" +
+                    URLEncoder.encode(itemId, "UTF-8") + "&file_id=" + URLEncoder.encode(fileId, "UTF-8")
+                val dl = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 12000
+                    readTimeout = 20000
+                    setRequestProperty("Authorization", "Bearer $secret")
+                    setRequestProperty("Accept", "application/json")
+                }
+                try {
+                    val code = dl.responseCode
+                    val stream = if (code in 200..299) dl.inputStream else dl.errorStream
+                    val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                    if (code !in 200..299) throw IllegalStateException("Could not request the TorBox file link (HTTP $code).")
+                    val root = JSONObject(body)
+                    if (!root.optBoolean("success", false)) throw IllegalStateException(root.optString("detail").ifBlank { "TorBox could not create this file's download link." })
+                    root.optString("data").takeIf { it.startsWith("https://") || it.startsWith("http://") }
+                        ?: throw IllegalStateException("TorBox did not return a download URL for this file.")
+                } finally { dl.disconnect() }
+            }
+            else -> throw IllegalArgumentException("Unknown provider.")
+        }
+    }
+
     fun fetchLibraryItemDetails(provider: String, itemId: String): ProviderItemDetails {
         val secret = readToken(provider)?.trim().orEmpty()
         require(secret.isNotEmpty()) { "Connect this provider in Services first." }
