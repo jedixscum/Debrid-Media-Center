@@ -145,119 +145,179 @@ internal fun V2MdbCatalogManager(onSelect: (V2Title) -> Unit) {
     var apiKey by remember { mutableStateOf(store.apiKey()) }
     var sections by remember { mutableStateOf(store.sections()) }
     var showEditor by remember { mutableStateOf(false) }
+    var editingSection by remember { mutableStateOf<MdbSection?>(null) }
     var name by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("") }
     var kind by remember { mutableStateOf("all") }
     var sort by remember { mutableStateOf("recent") }
-    var active by remember { mutableStateOf<MdbSection?>(null) }
-    var rows by remember { mutableStateOf(emptyList<MdbRow>()) }
-    var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf("") }
+    var notice by remember { mutableStateOf("") }
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Your MDBList catalogs", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Text("Create sections from live-updating MDBList lists.", color = Color(0xFF91A5AE), fontSize = 11.sp)
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        Row(Modifier.padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("Discover catalogs", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text("Your collections, in sideways-scrolling poster rows.", color = Color(0xFF91A5AE), fontSize = 11.sp)
             }
-            IconButton(onClick = { showEditor = !showEditor; error = "" }) {
+            IconButton(onClick = {
+                editingSection = null
+                name = ""; url = ""; kind = "all"; sort = "recent"
+                showEditor = !showEditor; notice = ""
+            }) {
                 Icon(if (showEditor) Icons.Default.Close else Icons.Default.AddCircle, "Add MDBList catalog", tint = Color(0xFF58E1CF))
             }
         }
         OutlinedTextField(
             value = apiKey,
             onValueChange = { apiKey = it; store.setApiKey(it) },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
             singleLine = true,
             label = { Text("MDBList API key") },
-            supportingText = { Text("Get your key from mdblist.com Preferences. It is saved on this device.") }
+            supportingText = { Text("Get your key from mdblist.com Preferences. Saved on this device.") }
         )
         if (showEditor) {
-            OutlinedTextField(value = name, onValueChange = { name = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Section name (e.g. Netflix)") })
-            OutlinedTextField(value = url, onValueChange = { url = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("MDBList list URL") }, placeholder = { Text("https://mdblist.com/lists/username/list-name") })
-            Text("Content", color = Color(0xFF91A5AE), fontSize = 11.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("all" to "Movies + TV", "movies" to "Movies", "series" to "TV shows").forEach { (value, label) ->
-                    FilterChip(selected = kind == value, onClick = { kind = value }, label = { Text(label, fontSize = 11.sp) })
-                }
-            }
-            Text("Sort order", color = Color(0xFF91A5AE), fontSize = 11.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                listOf("recent" to "Recently added", "popular" to "Most popular", "rating" to "Top rated", "year" to "Newest year").forEach { (value, label) ->
-                    FilterChip(selected = sort == value, onClick = { sort = value }, label = { Text(label, fontSize = 10.sp) })
-                }
-            }
-            Button(onClick = {
-                val cleanName = name.trim()
-                if (cleanName.isBlank() || url.isBlank()) {
-                    error = "Enter a section name and MDBList URL."
-                } else {
-                    val entry = MdbSection(cleanName, url.trim(), kind, sort)
-                    sections = sections.filterNot { it.name.equals(cleanName, true) } + entry
-                    store.save(sections)
-                    active = entry
-                    showEditor = false
-                    busy = true
-                    error = ""
-                }
-            }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Default.Add, null)
-                Spacer(Modifier.width(6.dp))
-                Text("Save section and load list")
-            }
-        }
-        if (sections.isNotEmpty()) {
-            Text("YOUR SECTIONS", color = Color(0xFF58E1CF), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(9.dp), contentPadding = PaddingValues(vertical = 2.dp)) {
-                items(sections, key = { it.name + it.listUrl }) { section ->
-                    Card(onClick = { active = section; busy = true; error = "" }, colors = CardDefaults.cardColors(if (active == section) Color(0xFF21434A) else Color(0xFF14232C)), shape = RoundedCornerShape(14.dp)) {
-                        Column(Modifier.width(112.dp).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Default.LiveTv, null, tint = Color(0xFF58E1CF), modifier = Modifier.size(24.dp))
-                            Text(section.name, fontWeight = FontWeight.Bold, maxLines = 2, minLines = 2)
-                            Text(if (section.kind == "all") "Movies & TV" else if (section.kind == "movies") "Movies" else "TV shows", color = Color(0xFF91A5AE), fontSize = 10.sp)
-                            Row {
-                                IconButton(onClick = { name = section.name; url = section.listUrl; kind = section.kind; sort = section.sort; showEditor = true }) {
-                                    Icon(Icons.Default.Edit, "Edit section", tint = Color(0xFF58E1CF), modifier = Modifier.size(17.dp))
-                                }
-                                IconButton(onClick = {
-                                    sections = sections.filterNot { it == section }
-                                    store.save(sections)
-                                    if (active == section) { active = null; rows = emptyList() }
-                                }) { Icon(Icons.Default.DeleteOutline, "Delete section", tint = Color(0xFF91A5AE), modifier = Modifier.size(17.dp)) }
-                            }
-                        }
+            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(if (editingSection == null) "Create a catalog row" else "Edit catalog row", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                OutlinedTextField(value = name, onValueChange = { name = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Section name (e.g. Netflix)") })
+                OutlinedTextField(value = url, onValueChange = { url = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("MDBList list URL") }, placeholder = { Text("https://mdblist.com/lists/username/list-name") })
+                Text("Content", color = Color(0xFF91A5AE), fontSize = 11.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("all" to "Movies + TV", "movies" to "Movies", "series" to "TV shows").forEach { (value, label) ->
+                        FilterChip(selected = kind == value, onClick = { kind = value }, label = { Text(label, fontSize = 11.sp) })
                     }
                 }
+                Text("Sort order", color = Color(0xFF91A5AE), fontSize = 11.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                    listOf("recent" to "Recently added", "popular" to "Most popular", "rating" to "Top rated", "year" to "Newest year").forEach { (value, label) ->
+                        FilterChip(selected = sort == value, onClick = { sort = value }, label = { Text(label, fontSize = 10.sp) })
+                    }
+                }
+                Button(onClick = {
+                    val cleanName = name.trim()
+                    if (cleanName.isBlank() || url.isBlank()) {
+                        notice = "Enter a section name and MDBList URL."
+                    } else {
+                        val entry = MdbSection(cleanName, url.trim(), kind, sort)
+                        val original = editingSection
+                        sections = sections.filterNot { it == original || it.name.equals(cleanName, true) } + entry
+                        store.save(sections)
+                        showEditor = false
+                        editingSection = null
+                        notice = ""
+                    }
+                }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Check, null); Spacer(Modifier.width(6.dp)); Text("Save catalog")
+                }
             }
         }
-        LaunchedEffect(active, busy) {
-            val chosen = active
-            if (busy && chosen != null) {
-                val result = withContext(Dispatchers.IO) { runCatching { fetchMdbSection(chosen, apiKey.trim()) } }
-                result.onSuccess { rows = it; error = if (it.isEmpty()) "This list returned no titles (or its response format was not recognized)." else "" }
-                    .onFailure { rows = emptyList(); error = it.message ?: "Could not load MDBList." }
-                busy = false
+        if (notice.isNotBlank()) Text(notice, color = Color(0xFFFFB4AB), fontSize = 12.sp, modifier = Modifier.padding(horizontal = 18.dp))
+        if (sections.isEmpty()) {
+            Card(Modifier.fillMaxWidth().padding(horizontal = 18.dp), colors = CardDefaults.cardColors(Color(0xFF14232C)), shape = RoundedCornerShape(18.dp)) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Icon(Icons.Default.ViewCarousel, null, tint = Color(0xFF58E1CF), modifier = Modifier.size(28.dp))
+                    Text("Your catalog rows will appear here", fontWeight = FontWeight.Bold)
+                    Text("Add an MDBList URL to create a row of posters. Swipe each row sideways, just like a streaming app.", color = Color(0xFF91A5AE), fontSize = 12.sp, lineHeight = 17.sp)
+                }
             }
         }
-        if (active != null) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(active!!.name, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                IconButton(onClick = { busy = true }) { Icon(Icons.Default.Refresh, "Refresh MDBList", tint = Color(0xFF58E1CF)) }
-                IconButton(onClick = { active = null; rows = emptyList(); error = "" }) { Icon(Icons.Default.Close, "Close list", tint = Color(0xFF91A5AE)) }
+        sections.forEach { section ->
+            MdbCatalogRail(
+                section = section,
+                apiKey = apiKey,
+                onSelect = onSelect,
+                onRefresh = { /* refresh is handled by the rail */ },
+                onEdit = {
+                    editingSection = section
+                    name = section.name; url = section.listUrl; kind = section.kind; sort = section.sort
+                    showEditor = true; notice = ""
+                },
+                onDelete = {
+                    sections = sections.filterNot { it == section }
+                    store.save(sections)
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun MdbCatalogRail(
+    section: MdbSection,
+    apiKey: String,
+    onSelect: (V2Title) -> Unit,
+    onRefresh: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    var rows by remember(section.name, section.listUrl) { mutableStateOf(emptyList<MdbRow>()) }
+    var busy by remember(section.name, section.listUrl) { mutableStateOf(true) }
+    var error by remember(section.name, section.listUrl) { mutableStateOf("") }
+    var refreshKey by remember(section.name, section.listUrl) { mutableIntStateOf(0) }
+
+    LaunchedEffect(section, apiKey, refreshKey) {
+        if (apiKey.isBlank()) {
+            busy = false
+            error = "Add your MDBList API key above to load this catalog."
+        } else {
+            busy = true
+            error = ""
+            val result = withContext(Dispatchers.IO) { runCatching { fetchMdbSection(section, apiKey.trim()) } }
+            result.onSuccess { rows = it; error = if (it.isEmpty()) "No titles found in this list." else "" }
+                .onFailure { rows = emptyList(); error = it.message ?: "Could not load MDBList." }
+            busy = false
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.padding(start = 18.dp, end = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(section.name, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    when (section.sort) { "popular" -> "Most popular"; "rating" -> "Top rated"; "year" -> "Newest year"; else -> "Recently added" },
+                    color = Color(0xFF91A5AE), fontSize = 10.sp
+                )
             }
-            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-            if (error.isNotBlank()) Text(error, color = Color(0xFFFFB4AB), fontSize = 12.sp)
-            rows.forEach { row ->
-                val title = V2Title(row.id, row.type, row.title, row.year, row.overview, row.poster)
-                Card(onClick = { onSelect(title) }, modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(Color(0xFF101922)), shape = RoundedCornerShape(13.dp)) {
-                    Row(Modifier.padding(11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        androidx.compose.foundation.Image(painter = rememberAsyncImagePainter(row.poster), contentDescription = null, modifier = Modifier.width(44.dp).height(64.dp))
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text(row.title, fontWeight = FontWeight.SemiBold)
-                            Text(listOf(row.year, if (row.type == "series") "TV" else "Movie", if (row.rating > 0) "★ ${"%.1f".format(row.rating)}" else "").filter { it.isNotBlank() }.joinToString(" · "), color = Color(0xFF91A5AE), fontSize = 10.sp)
-                            if (row.overview.isNotBlank()) Text(row.overview, color = Color(0xFF91A5AE), fontSize = 11.sp, maxLines = 2)
+            IconButton(onClick = { refreshKey++ }) { Icon(Icons.Default.Refresh, "Refresh ${section.name}", tint = Color(0xFF58E1CF)) }
+            IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, "Edit ${section.name}", tint = Color(0xFF91A5AE)) }
+            IconButton(onClick = onDelete) { Icon(Icons.Default.DeleteOutline, "Delete ${section.name}", tint = Color(0xFF91A5AE)) }
+        }
+        if (busy) {
+            LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 18.dp))
+        } else if (error.isNotBlank()) {
+            Text(error, color = Color(0xFF91A5AE), fontSize = 11.sp, modifier = Modifier.padding(horizontal = 18.dp))
+        }
+        if (rows.isNotEmpty()) {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(start = 18.dp, end = 18.dp, bottom = 4.dp)
+            ) {
+                items(rows, key = { "${section.name}:${it.type}:${it.id}:${it.title}" }) { row ->
+                    Card(
+                        onClick = { onSelect(V2Title(row.id, row.type, row.title, row.year, row.overview, row.poster)) },
+                        modifier = Modifier.width(122.dp),
+                        colors = CardDefaults.cardColors(Color(0xFF101922)),
+                        shape = RoundedCornerShape(13.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            if (row.poster.isNotBlank()) {
+                                androidx.compose.foundation.Image(
+                                    painter = rememberAsyncImagePainter(row.poster),
+                                    contentDescription = "${row.title} poster",
+                                    modifier = Modifier.fillMaxWidth().height(174.dp),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                )
+                            } else {
+                                Box(Modifier.fillMaxWidth().height(174.dp), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Movie, null, tint = Color(0xFF58E1CF), modifier = Modifier.size(36.dp))
+                                }
+                            }
+                            Text(row.title, modifier = Modifier.padding(horizontal = 7.dp), fontWeight = FontWeight.SemiBold, fontSize = 11.sp, maxLines = 2, minLines = 2, lineHeight = 14.sp)
+                            Text(
+                                listOf(row.year, if (row.type == "series") "TV" else "Movie", if (row.rating > 0) "★ ${"%.1f".format(row.rating)}" else "")
+                                    .filter { it.isNotBlank() }.joinToString(" · "),
+                                modifier = Modifier.padding(start = 7.dp, end = 7.dp, bottom = 8.dp),
+                                color = Color(0xFF91A5AE), fontSize = 9.sp, maxLines = 1
+                            )
                         }
-                        Icon(Icons.Default.ChevronRight, null, tint = Color(0xFF58E1CF))
                     }
                 }
             }
