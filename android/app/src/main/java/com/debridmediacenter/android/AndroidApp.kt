@@ -554,7 +554,7 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, initialS
     var sourceLink by remember { mutableStateOf("") }
     var directUrl by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
-    var activeTool by remember { mutableStateOf<String?>(null) }
+    var activeTool by remember { mutableStateOf<String?>("search") }
     var contentType by remember { mutableStateOf("movie") }
     var searchType by remember { mutableStateOf("All") }
     var selectedGenre by remember { mutableStateOf("All") }
@@ -615,9 +615,8 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, initialS
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                ToolIcon("Search", Icons.Default.Search, activeTool == "search", Modifier.weight(1f)) { activeTool = if (activeTool == "search") null else "search" }
-                ToolIcon("Magnet", Icons.Default.Link, activeTool == "magnet", Modifier.weight(1f)) { activeTool = if (activeTool == "magnet") null else "magnet" }
-                ToolIcon("Player", Icons.Default.PlayArrow, activeTool == "player", Modifier.weight(1f)) { activeTool = if (activeTool == "player") null else "player" }
+                ToolIcon("Search releases", Icons.Default.Search, activeTool == "search", Modifier.weight(1f)) { activeTool = "search" }
+                ToolIcon("Add magnet / link", Icons.Default.Link, activeTool == "magnet", Modifier.weight(1f)) { activeTool = "magnet" }
             }
         }
         if (activeTool == "search") {
@@ -754,67 +753,8 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, initialS
             }
         }
 
-        item {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Featured", fontSize = 23.sp, fontWeight = FontWeight.Bold)
-                Text("Highly rated picks to get you started", color = Muted, fontSize = 12.sp)
-            }
-        }
-        if (catalogBusy && featured.isEmpty()) {
-            item { BoxLoading() }
-        } else if (featured.isNotEmpty()) {
-            item { FeaturedHero(featured.first(), onDetails) }
-        }
+        // Debrid Manager intentionally has no streaming-style catalog or playback discovery.
 
-        item {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Browse by genre", fontSize = 23.sp, fontWeight = FontWeight.Bold)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(genres, key = { it }) { genre ->
-                        FilterChip(selected = selectedGenre == genre, onClick = { selectedGenre = genre }, label = { Text(genre) })
-                    }
-                }
-            }
-        }
-        item {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(if (selectedGenre == "All") "Popular picks" else "$selectedGenre picks", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Text("Choose a title to search its available releases", color = Muted, fontSize = 12.sp)
-            }
-        }
-        if (catalogBusy && genreTitles.isEmpty()) {
-            item { BoxLoading() }
-        } else if (genreTitles.isNotEmpty()) {
-            item {
-                LazyRow(contentPadding = PaddingValues(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(genreTitles, key = { "genre-${it.id}" }) { item -> PosterTile(item) { onDetails(item) } }
-                }
-            }
-        } else {
-            item { Text("No titles in this genre right now.", color = Muted, modifier = Modifier.padding(horizontal = 18.dp)) }
-        }
-
-        item {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(if (contentType == "movie") "New movies" else "New TV shows", fontSize = 23.sp, fontWeight = FontWeight.Bold)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(contentType == "movie", { contentType = "movie" }, label = { Text("Movies") })
-                    FilterChip(contentType == "series", { contentType = "series" }, label = { Text("TV Shows") })
-                }
-            }
-        }
-        if (catalogBusy && recent.isEmpty()) {
-            item { BoxLoading() }
-        } else if (recent.isNotEmpty()) {
-            item {
-                LazyRow(contentPadding = PaddingValues(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(recent, key = { "recent-${it.id}" }) { item -> PosterTile(item) { onDetails(item) } }
-                }
-            }
-        } else {
-            item { Text(catalogError.ifBlank { "Recent titles are unavailable." }, color = Muted, modifier = Modifier.padding(horizontal = 18.dp)) }
-        }
-        if (catalogError.isNotBlank()) item { Text(catalogError, color = Muted, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 18.dp)) }
     }
 }
 
