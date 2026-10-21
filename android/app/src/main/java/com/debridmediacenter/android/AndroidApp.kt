@@ -1205,6 +1205,24 @@ private fun LibraryScreen(
                 }
             }
         }
+        if (notice.isNotBlank() && items.isNotEmpty()) {
+            item {
+                Card(
+                    Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                    colors = CardDefaults.cardColors(containerColor = Panel2),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = null, tint = Teal)
+                        Text(notice, color = ThemeText, fontSize = 12.sp, lineHeight = 17.sp)
+                    }
+                }
+            }
+        }
         val visibleItems = items.filter { selectedProvider == "all" || it.provider == selectedProvider }
         if (loaded && visibleItems.isEmpty() && items.isNotEmpty()) {
             item { Text(if (selectedProvider == ProviderStore.TORBOX) "No TorBox items were returned." else "No Real-Debrid items were returned.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) }
@@ -1264,13 +1282,17 @@ private fun LibraryScreen(
                                                 .trim()
                                                 .take(120)
                                                 .ifBlank { "debrid-video" }
+                                            val pathName = Uri.parse(url).lastPathSegment.orEmpty()
+                                            val extension = pathName.substringAfterLast('.', "")
+                                                .takeIf { it.length in 2..5 && it.all(Char::isLetterOrDigit) }
+                                                ?.let { ".$it" }.orEmpty()
                                             val request = DownloadManager.Request(Uri.parse(url))
                                                 .setTitle(safeTitle)
                                                 .setDescription("Downloading from ${if (item.provider == ProviderStore.TORBOX) "TorBox" else "Real-Debrid"}")
                                                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                                                 .setAllowedOverMetered(true)
                                                 .setAllowedOverRoaming(false)
-                                                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Debrid Media Center/$safeTitle")
+                                                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Debrid Media Center/$safeTitle$extension")
                                             val manager = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as DownloadManager
                                             manager.enqueue(request)
                                         }.onSuccess {
