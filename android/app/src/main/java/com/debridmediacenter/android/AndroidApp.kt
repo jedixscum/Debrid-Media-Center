@@ -1658,7 +1658,7 @@ private fun MediaDetailsScreen(
         if (releases.isNotEmpty()) {
             val episodeFilteredReleases = selectedEpisode?.let { episode ->
                 val exactEpisode = Regex("(?i)\\bS" + episode.season.toString().padStart(2, '0') + "E" + episode.episode.toString().padStart(2, '0') + "\\b")
-                val seasonPack = Regex("(?i)\\b(S" + episode.season.toString().padStart(2, '0') + "(?:\\\\s*(?:COMPLETE|PACK))?|SEASON\\\\s*" + episode.season + ")\\b")
+                val seasonPack = Regex("(?i)\\b(S" + episode.season.toString().padStart(2, '0') + "(?:\\s*(?:COMPLETE|PACK))?|SEASON\\s*" + episode.season + ")\\b")
                 releases.filter { exactEpisode.containsMatchIn(it.title) || seasonPack.containsMatchIn(it.title) }
             } ?: releases
             if (selectedEpisode != null) {
