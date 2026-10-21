@@ -48,6 +48,10 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -86,15 +90,30 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 
-private val Bg = Color(0xFF080E14)
-private val Panel = Color(0xFF101922)
-private val Panel2 = Color(0xFF14232C)
-private val Teal = Color(0xFF58E1CF)
-private val Muted = Color(0xFF91A5AE)
+private var Bg by mutableStateOf(Color(0xFF080E14))
+private var Panel by mutableStateOf(Color(0xFF101922))
+private var Panel2 by mutableStateOf(Color(0xFF14232C))
+private var Teal by mutableStateOf(Color(0xFF58E1CF))
+private var Muted by mutableStateOf(Color(0xFF91A5AE))
+private var ThemeText by mutableStateOf(Color.White)
+private var UseLightTheme by mutableStateOf(false)
+private fun applyDmcTheme(name: String) {
+ val c = when(name) {
+  "Dracula" -> listOf(Color(0xFF282A36),Color(0xFF343746),Color(0xFF44475A),Color(0xFFBD93F9),Color(0xFFB8B8C8),Color(0xFFF8F8F2),false)
+  "Nord" -> listOf(Color(0xFF2E3440),Color(0xFF3B4252),Color(0xFF434C5E),Color(0xFF88C0D0),Color(0xFFD8DEE9),Color(0xFFECEFF4),false)
+  "AMOLED" -> listOf(Color.Black,Color(0xFF090909),Color(0xFF171717),Color(0xFF64FFDA),Color(0xFFAAAAAA),Color.White,false)
+  "Light" -> listOf(Color(0xFFF4F6F8),Color.White,Color(0xFFE5EBEF),Color(0xFF00796B),Color(0xFF58666D),Color(0xFF172126),true)
+  else -> listOf(Color(0xFF080E14),Color(0xFF101922),Color(0xFF14232C),Color(0xFF58E1CF),Color(0xFF91A5AE),Color.White,false)
+ }
+ Bg=c[0] as Color; Panel=c[1] as Color; Panel2=c[2] as Color; Teal=c[3] as Color; Muted=c[4] as Color; ThemeText=c[5] as Color; UseLightTheme=c[6] as Boolean
+}
 
 @Composable
 fun DebridMediaCenterApp() {
     val context = LocalContext.current
+    val settings = remember { context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE) }
+    val themeName = remember { mutableStateOf(settings.getString("theme", "Dark Teal") ?: "Dark Teal") }
+    LaunchedEffect(Unit) { applyDmcTheme(themeName.value) }
     val store = remember { ProviderStore(context.applicationContext) }
     val stremioStore = remember { StremioAddonStore(context.applicationContext) }
     val scope = rememberCoroutineScope()
@@ -123,8 +142,9 @@ fun DebridMediaCenterApp() {
         }
     }
 
-    MaterialTheme(colorScheme = darkColorScheme(primary = Teal, background = Bg, surface = Panel)) {
-        Surface(Modifier.fillMaxSize(), color = Bg, contentColor = Color.White) {
+    val scheme = if (UseLightTheme) androidx.compose.material3.lightColorScheme(primary=Teal, background=Bg, surface=Panel, onBackground=ThemeText, onSurface=ThemeText) else darkColorScheme(primary=Teal, background=Bg, surface=Panel, onBackground=ThemeText, onSurface=ThemeText)
+    MaterialTheme(colorScheme = scheme) {
+        Surface(Modifier.fillMaxSize(), color = Bg, contentColor = ThemeText) {
             when {
                 playerUrl != null -> DmcPlayer(
                     url = playerUrl!!,
@@ -181,7 +201,7 @@ fun DebridMediaCenterApp() {
                                     resumePositionMs = 0L
                                     playerUrl = url
                                 })
-                                else -> SettingsScreen(store, scope, collectionStore) { destination -> navigateTo(destination) }
+                                else -> SettingsScreen(store, scope, collectionStore, themeName.value, { chosen -> themeName.value=chosen; settings.edit().putString("theme",chosen).apply(); applyDmcTheme(chosen) }) { destination -> navigateTo(destination) }
                             }
                         }
                         NavigationBar(containerColor = Panel) {
@@ -544,6 +564,8 @@ private fun HomeCard(title: String, body: String, icon: androidx.compose.ui.grap
 private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, initialSelection: MediaSearchResult?, onSelectionConsumed: () -> Unit, onDetails: (MediaSearchResult) -> Unit, onPlay: (String, MediaSearchResult) -> Unit) {
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<MediaSearchResult>>(emptyList()) }
+    var lastSearch by remember { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
     var selected by remember { mutableStateOf<MediaSearchResult?>(null) }
     var releases by remember { mutableStateOf<List<ReleaseSearchResult>>(emptyList()) }
     var releaseSearchFailed by remember { mutableStateOf(false) }
@@ -602,6 +624,23 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, initialS
         status = "Selected ${item.title}. Choose a provider and find releases."
     }
 
+    fun runTitleSearch(term: String) {
+        val q=term.trim()
+        if(q.length<2 || busy) return
+        lastSearch=q
+        scope.launch {
+            val result=withContext(Dispatchers.IO){runCatching{searchTitles(q)}}
+            result.onSuccess { results=it; status=if(it.isEmpty()) "No matching titles found." else "${it.size} suggestions · select a title" }
+                .onFailure { status=it.message ?: "Search failed." }
+        }
+    }
+    LaunchedEffect(query, selected) {
+        if(selected==null && query.trim().length>=2) {
+            delay(350)
+            if(query.trim()!=lastSearch) runTitleSearch(query)
+        } else if(query.isBlank()) { results=emptyList(); lastSearch="" }
+    }
+
     LaunchedEffect(initialSelection) {
         initialSelection?.let {
             chooseTitle(it)
@@ -627,19 +666,8 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, initialS
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("SEARCH TITLES TO ADD", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedTextField(query, { query = it }, label = { Text("Movie or show") }, modifier = Modifier.weight(1f), singleLine = true)
-                            Button(enabled = !busy && query.trim().length >= 2, onClick = {
-                                busy = true
-                                status = "Searching…"
-                                selected = null
-                                releases = emptyList()
-                                scope.launch {
-                                    val result = withContext(Dispatchers.IO) { runCatching { searchTitles(query) } }
-                                    busy = false
-                                    result.onSuccess { results = it; status = if (it.isEmpty()) "No matching titles found." else "${it.size} titles found." }
-                                        .onFailure { results = emptyList(); status = it.message ?: "Search failed." }
-                                }
-                            }) { Icon(Icons.Default.Search, contentDescription = "Search") }
+                            OutlinedTextField(value=query, onValueChange={ query=it; selected=null; releases=emptyList() }, label={Text("Movie or show")}, placeholder={Text("Start typing a title…")}, modifier=Modifier.weight(1f), singleLine=true, keyboardOptions=KeyboardOptions(imeAction=ImeAction.Search), keyboardActions=KeyboardActions(onSearch={focusManager.clearFocus();runTitleSearch(query)}))
+                            Button(enabled=query.trim().length>=2, onClick={focusManager.clearFocus();runTitleSearch(query)}) { Icon(Icons.Default.Search, contentDescription="Search") }
                         }
                         if (status.isNotBlank()) Text(status, color = Muted, fontSize = 11.sp)
                     }
@@ -1259,7 +1287,7 @@ private fun ProviderCard(store: ProviderStore, scope: CoroutineScope, provider: 
 }
 
 @Composable
-private fun SettingsScreen(store: ProviderStore, scope: CoroutineScope, collectionStore: MediaCollectionStore, go: (Int) -> Unit) {
+private fun SettingsScreen(store: ProviderStore, scope: CoroutineScope, collectionStore: MediaCollectionStore, themeName:String, onThemeChange:(String)->Unit, go:(Int)->Unit) {
     val context = LocalContext.current
     val preferences = remember { context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE) }
     var historyRevision by remember { mutableIntStateOf(0) }
@@ -1278,7 +1306,18 @@ private fun SettingsScreen(store: ProviderStore, scope: CoroutineScope, collecti
                 ProviderCard(store, scope, ProviderStore.TORBOX, "TorBox")
                 ProviderCard(store, scope, ProviderStore.DMM, "DMM sponsor API")
             }
+        }        item {
+            SettingsSection("APPEARANCE", "Choose a popular color theme.") {
+                listOf("Dark Teal","Dracula","Nord","AMOLED","Light").forEach { option ->
+                    Row(Modifier.fillMaxWidth().clickable { onThemeChange(option) }.padding(vertical=7.dp), verticalAlignment=Alignment.CenterVertically) {
+                        Text("●", color=when(option){"Dracula"->Color(0xFFBD93F9);"Nord"->Color(0xFF88C0D0);"AMOLED"->Color(0xFF64FFDA);"Light"->Color(0xFF00796B);else->Color(0xFF58E1CF)}, modifier=Modifier.padding(end=10.dp))
+                        Text(option, modifier=Modifier.weight(1f), color=ThemeText)
+                        if(themeName==option) Text("Selected", color=Teal, fontSize=12.sp)
+                    }
+                }
+            }
         }
+
         item {
             SettingsSection("DISCOVERY & DISPLAY", "Choose how titles are shown in the app.") {
                 Row(
