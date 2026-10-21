@@ -1,0 +1,543 @@
+package com.debridmediacenter.android
+
+import android.net.Uri
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
+
+private val V2Bg = Color(0xFF080E14)
+private val V2Panel = Color(0xFF101922)
+private val V2Panel2 = Color(0xFF14232C)
+private val V2Teal = Color(0xFF58E1CF)
+private val V2Muted = Color(0xFF91A5AE)
+
+private enum class V2Mode { HOME, DEBRID, STREAMING }
+private enum class V2Tab { HOME, SEARCH, MOVIES, TV, ADDONS }
+
+private data class V2Title(
+    val id: String,
+    val type: String,
+    val title: String,
+    val year: String,
+    val overview: String,
+    val posterUrl: String
+)
+
+private data class V2Episode(
+    val season: Int,
+    val episode: Int,
+    val title: String,
+    val id: String,
+    val overview: String = "",
+    val thumbnail: String = ""
+)
+
+@Composable
+fun AioMediaCenterV2App() {
+    var mode by remember { mutableStateOf(V2Mode.HOME) }
+    var tab by remember { mutableStateOf(V2Tab.HOME) }
+    var selected by remember { mutableStateOf<V2Title?>(null) }
+    var player by remember { mutableStateOf<Pair<String, String>?>(null) }
+
+    BackHandler(enabled = mode != V2Mode.HOME || selected != null || player != null) {
+        when {
+            player != null -> player = null
+            selected != null -> selected = null
+            mode != V2Mode.HOME -> mode = V2Mode.HOME
+        }
+    }
+
+    MaterialTheme(colorScheme = darkColorScheme(primary = V2Teal, background = V2Bg, surface = V2Panel)) {
+        Surface(Modifier.fillMaxSize(), color = V2Bg, contentColor = Color.White) {
+            when {
+                player != null -> V2Player(player!!.first, player!!.second) { player = null }
+                mode == V2Mode.HOME -> V2Chooser(
+                    onDebrid = { mode = V2Mode.DEBRID },
+                    onStreaming = { mode = V2Mode.STREAMING }
+                )
+                mode == V2Mode.DEBRID -> Box(Modifier.fillMaxSize()) {
+                    DebridMediaCenterApp()
+                    OutlinedButton(
+                        onClick = { mode = V2Mode.HOME },
+                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp)
+                    ) {
+                        Icon(Icons.Default.Home, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(5.dp))
+                        Text("DEBRID MANAGER", fontSize = 10.sp)
+                    }
+                }
+                else -> V2Streaming(
+                    tab = tab,
+                    onTab = { tab = it },
+                    selected = selected,
+                    onSelect = { selected = it },
+                    onBack = { selected = null },
+                    onPlay = { title, url -> player = title to url }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun V2Chooser(onDebrid: () -> Unit, onStreaming: () -> Unit) {
+    LazyColumn(contentPadding = PaddingValues(20.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text("DEBRID MEDIA CENTER", color = V2Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                Text("All your media, one app.", fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                Text("Manage debrid libraries or stream through your installed Stremio add-ons.", color = V2Muted, fontSize = 13.sp)
+            }
+        }
+        item {
+            V2ModeCard(Icons.Default.Folder, "DEBRID MANAGER", "Find · Add · Manage · Play", "Search titles, find releases, add them to Real-Debrid or TorBox, manage libraries, and play ready media.", "Open Debrid Manager", onDebrid)
+        }
+        item {
+            V2ModeCard(Icons.Default.PlayArrow, "STREMIO STREAMING", "Browse · Pick a stream · Watch", "Search movies and TV, select seasons and episodes, query your installed Stremio add-ons, and play direct streams.", "Open Streaming", onStreaming)
+        }
+    }
+}
+
+@Composable
+private fun V2ModeCard(icon: androidx.compose.ui.graphics.vector.ImageVector, eyebrow: String, title: String, body: String, action: String, onClick: () -> Unit) {
+    Card(onClick = onClick, modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(V2Panel2), shape = RoundedCornerShape(24.dp)) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(Modifier.size(48.dp).background(V2Teal.copy(.12f), RoundedCornerShape(15.dp)), Alignment.Center) { Icon(icon, null, tint = V2Teal) }
+            Text(eyebrow, color = V2Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+            Text(title, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+            Text(body, color = V2Muted, fontSize = 12.sp, lineHeight = 18.sp)
+            Button(onClick, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(V2Teal, V2Bg)) { Text(action, fontWeight = FontWeight.Bold) }
+        }
+    }
+}
+
+@Composable
+private fun V2Streaming(
+    tab: V2Tab,
+    onTab: (V2Tab) -> Unit,
+    selected: V2Title?,
+    onSelect: (V2Title) -> Unit,
+    onBack: () -> Unit,
+    onPlay: (String, String) -> Unit
+) {
+    Column(Modifier.fillMaxSize()) {
+        Column(Modifier.weight(1f).fillMaxWidth()) {
+            if (selected != null) V2Details(selected, onBack, onPlay)
+            else when (tab) {
+                V2Tab.HOME -> V2Home(onSelect, onTab)
+                V2Tab.SEARCH -> V2Search(onSelect)
+                V2Tab.MOVIES -> V2Catalog("movie", "Movies", onSelect)
+                V2Tab.TV -> V2Catalog("series", "TV Shows", onSelect)
+                V2Tab.ADDONS -> StremioAddonsScreen { onTab(V2Tab.HOME) }
+            }
+        }
+        if (selected == null && tab != V2Tab.ADDONS) {
+            NavigationBar(containerColor = V2Panel) {
+                listOf(
+                    V2Tab.HOME to ("Home" to Icons.Default.Home),
+                    V2Tab.SEARCH to ("Search" to Icons.Default.Search),
+                    V2Tab.MOVIES to ("Movies" to Icons.Default.Movie),
+                    V2Tab.TV to ("TV" to Icons.Default.Tv),
+                    V2Tab.ADDONS to ("Add-ons" to Icons.Default.Extension)
+                ).forEach { (target, p) ->
+                    NavigationBarItem(selected = tab == target, onClick = { onTab(target) }, icon = { Icon(p.second, p.first) }, label = { Text(p.first, fontSize = 9.sp) })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun V2Home(onSelect: (V2Title) -> Unit, onTab: (V2Tab) -> Unit) {
+    var movies by remember { mutableStateOf(emptyList<V2Title>()) }
+    var shows by remember { mutableStateOf(emptyList<V2Title>()) }
+    var loading by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        val result = withContext(Dispatchers.IO) { runCatching { fetchV2Catalog("movie") to fetchV2Catalog("series") } }
+        result.onSuccess { movies = it.first; shows = it.second }
+        loading = false
+    }
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(18.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+        item { V2Header("Watch your way.", "Streams come from the add-ons you install.") }
+        item {
+            Card(onClick = { onTab(V2Tab.SEARCH) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp), colors = CardDefaults.cardColors(V2Panel2), shape = RoundedCornerShape(20.dp)) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Icon(Icons.Default.Search, null, tint = V2Teal)
+                    Column(Modifier.weight(1f)) { Text("Search movies & TV", fontWeight = FontWeight.SemiBold); Text("Find a title, then choose a stream.", color = V2Muted, fontSize = 11.sp) }
+                }
+            }
+        }
+        item { V2TitleRow("Popular movies", movies, loading, onSelect) }
+        item { V2TitleRow("Popular TV shows", shows, loading, onSelect) }
+        item {
+            Card(onClick = { onTab(V2Tab.ADDONS) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp), colors = CardDefaults.cardColors(V2Panel), shape = RoundedCornerShape(18.dp)) {
+                Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Icon(Icons.Default.Extension, null, tint = V2Teal)
+                    Column(Modifier.weight(1f)) { Text("Manage Stremio add-ons", fontWeight = FontWeight.SemiBold); Text("Add or remove stream sources.", color = V2Muted, fontSize = 11.sp) }
+                    Icon(Icons.Default.AddCircle, null, tint = V2Teal)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun V2Catalog(type: String, heading: String, onSelect: (V2Title) -> Unit) {
+    var rows by remember(type) { mutableStateOf(emptyList<V2Title>()) }
+    var loading by remember(type) { mutableStateOf(true) }
+    LaunchedEffect(type) {
+        rows = withContext(Dispatchers.IO) { runCatching { fetchV2Catalog(type) }.getOrDefault(emptyList()) }
+        loading = false
+    }
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+        item { V2Header(heading, "Browse titles, then choose a stream source.") }
+        if (loading) item { V2Loading() }
+        items(rows, key = { "$type:${it.id}" }) { V2ResultCard(it, onSelect) }
+    }
+}
+
+@Composable
+private fun V2Search(onSelect: (V2Title) -> Unit) {
+    var query by remember { mutableStateOf("") }
+    var results by remember { mutableStateOf(emptyList<V2Title>()) }
+    var busy by remember { mutableStateOf(false) }
+    var searched by remember { mutableStateOf(false) }
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+        item { V2Header("Search", "Find movies and TV shows by title.") }
+        item {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(query, { query = it }, Modifier.weight(1f), singleLine = true, label = { Text("Movie or TV show") })
+                Button(enabled = !busy && query.trim().length >= 2, onClick = { busy = true; searched = true }) { Icon(Icons.Default.Search, "Search") }
+            }
+        }
+        item {
+            LaunchedEffect(busy) {
+                if (busy) {
+                    results = withContext(Dispatchers.IO) { runCatching { fetchV2Search(query) }.getOrDefault(emptyList()) }
+                    busy = false
+                }
+            }
+        }
+        if (busy) item { V2Loading() }
+        if (!busy && searched && results.isEmpty()) item { Text("No matching titles found.", color = V2Muted, modifier = Modifier.padding(horizontal = 18.dp)) }
+        items(results, key = { it.id }) { V2ResultCard(it, onSelect) }
+    }
+}
+
+@Composable
+private fun V2Header(title: String, subtitle: String) {
+    Column(Modifier.padding(horizontal = 20.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text("STREMIO STREAMING", color = V2Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+        Text(title, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        Text(subtitle, color = V2Muted, fontSize = 13.sp)
+    }
+}
+
+@Composable
+private fun V2TitleRow(title: String, rows: List<V2Title>, loading: Boolean, onSelect: (V2Title) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        Text(title, fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 18.dp))
+        if (loading && rows.isEmpty()) V2Loading() else LazyRow(contentPadding = PaddingValues(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(rows.take(14), key = { it.id }) { item ->
+                Card(onClick = { onSelect(item) }, modifier = Modifier.width(120.dp), colors = CardDefaults.cardColors(V2Panel), shape = RoundedCornerShape(15.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        AsyncImage(item.posterUrl.takeIf { it.isNotBlank() }, item.title, Modifier.fillMaxWidth().height(172.dp), contentScale = ContentScale.Crop)
+                        Text(item.title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, modifier = Modifier.padding(horizontal = 9.dp))
+                        Text(item.year.ifBlank { item.type.uppercase() }, color = V2Muted, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 9.dp, vertical = 2.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun V2ResultCard(item: V2Title, onSelect: (V2Title) -> Unit) {
+    Card(onClick = { onSelect(item) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp), colors = CardDefaults.cardColors(V2Panel), shape = RoundedCornerShape(17.dp)) {
+        Row(Modifier.padding(11.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            AsyncImage(item.posterUrl.takeIf { it.isNotBlank() }, item.title, Modifier.size(76.dp, 112.dp), contentScale = ContentScale.Crop)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(item.title, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("${item.type.uppercase()} · ${item.year.ifBlank { "Unknown year" }}", color = V2Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                if (item.overview.isNotBlank()) Text(item.overview.take(180), color = V2Muted, fontSize = 11.sp, lineHeight = 16.sp)
+            }
+            Icon(Icons.Default.PlayArrow, "Open", tint = V2Teal)
+        }
+    }
+}
+
+@Composable
+private fun V2Details(item: V2Title, onBack: () -> Unit, onPlay: (String, String) -> Unit) {
+    val context = LocalContext.current
+    val addonStore = remember { StremioAddonStore(context.applicationContext) }
+    var episodes by remember(item.id) { mutableStateOf(emptyList<V2Episode>()) }
+    var selectedEpisode by remember(item.id) { mutableStateOf<V2Episode?>(null) }
+    var season by remember(item.id) { mutableIntStateOf(1) }
+    var guideLoading by remember(item.id) { mutableStateOf(item.type != "movie") }
+    var guideError by remember(item.id) { mutableStateOf("") }
+    var streams by remember(item.id) { mutableStateOf(emptyList<StremioStream>()) }
+    var streamLoading by remember(item.id) { mutableStateOf(false) }
+    var streamStatus by remember(item.id) { mutableStateOf("") }
+
+    LaunchedEffect(item.id, item.type) {
+        if (item.type == "movie") {
+            guideLoading = false
+            return@LaunchedEffect
+        }
+        guideLoading = true
+        guideError = ""
+        val result = withContext(Dispatchers.IO) { runCatching { fetchV2Episodes(item.id) } }
+        result.onSuccess {
+            episodes = it
+            season = it.firstOrNull()?.season ?: 1
+            guideLoading = false
+            guideError = if (it.isEmpty()) "No episode guide was returned by the metadata service." else ""
+        }.onFailure {
+            guideLoading = false
+            guideError = it.message ?: "Could not load the episode guide."
+        }
+    }
+
+    LaunchedEffect(item.id, selectedEpisode?.id) {
+        if (item.type == "movie") {
+            streamLoading = true
+            streamStatus = ""
+            val result = withContext(Dispatchers.IO) { runCatching { addonStore.streams("movie", item.id) } }
+            result.onSuccess { streams = it; if (it.isEmpty()) streamStatus = "No direct playable streams were returned by the installed add-ons." }
+                .onFailure { streamStatus = it.message ?: "Could not query the installed add-ons." }
+            streamLoading = false
+        } else if (selectedEpisode != null) {
+            streamLoading = true
+            streamStatus = ""
+            val episode = selectedEpisode!!
+            val mediaId = "${item.id}:${episode.season}:${episode.episode}"
+            val result = withContext(Dispatchers.IO) { runCatching { addonStore.streams("series", mediaId) } }
+            result.onSuccess {
+                streams = it
+                if (it.isEmpty()) streamStatus = "No direct playable streams were returned for S${episode.season.toString().padStart(2, '0')}E${episode.episode.toString().padStart(2, '0')}."
+            }.onFailure { streamStatus = it.message ?: "Could not query the installed add-ons." }
+            streamLoading = false
+        } else {
+            streams = emptyList()
+            streamLoading = false
+            streamStatus = "Select an episode to load streams."
+        }
+    }
+
+    val seasons = episodes.map { it.season }.distinct().sorted()
+    val visibleEpisodes = episodes.filter { it.season == season }
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(13.dp), contentPadding = PaddingValues(bottom = 28.dp)) {
+        item {
+            Row(Modifier.fillMaxWidth().padding(start = 10.dp, end = 18.dp, top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back", tint = V2Teal) }
+                Column(Modifier.weight(1f)) {
+                    Text("STREAM DETAILS", color = V2Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+                    Text(if (item.type == "movie") "Choose a playable source" else "Choose a season and episode", color = V2Muted, fontSize = 11.sp)
+                }
+            }
+        }
+        item {
+            Card(Modifier.fillMaxWidth().padding(horizontal = 18.dp), colors = CardDefaults.cardColors(V2Panel2), shape = RoundedCornerShape(21.dp)) {
+                Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(13.dp), verticalAlignment = Alignment.Top) {
+                    AsyncImage(item.posterUrl.takeIf { it.isNotBlank() }, item.title, Modifier.width(112.dp).height(166.dp), contentScale = ContentScale.Crop)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Text(item.title, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                        Text("${item.year} · ${item.type.uppercase()}", color = V2Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        if (item.overview.isNotBlank()) Text(item.overview.take(240), color = V2Muted, fontSize = 11.sp, lineHeight = 16.sp)
+                        Text("${addonStore.addons().size} add-on(s) installed", color = V2Muted, fontSize = 10.sp)
+                    }
+                }
+            }
+        }
+        if (item.type != "movie") {
+            item {
+                Column(Modifier.padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Text("Episodes", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    when {
+                        guideLoading -> V2Loading()
+                        guideError.isNotBlank() -> Text(guideError, color = V2Muted, fontSize = 12.sp)
+                        seasons.isEmpty() -> Text("No episodes were returned for this show.", color = V2Muted, fontSize = 12.sp)
+                        else -> {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                                items(seasons) { s ->
+                                    FilterChip(selected = season == s, onClick = { season = s; selectedEpisode = null }, label = { Text(if (s == 0) "Specials" else "Season $s") })
+                                }
+                            }
+                            visibleEpisodes.forEach { episode ->
+                                Card(
+                                    onClick = { selectedEpisode = episode },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(if (selectedEpisode?.id == episode.id) V2Panel2 else V2Panel),
+                                    shape = RoundedCornerShape(14.dp)
+                                ) {
+                                    Row(Modifier.padding(10.dp), horizontalArrangement = Arrangement.spacedBy(11.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        if (episode.thumbnail.isNotBlank()) AsyncImage(episode.thumbnail, episode.title, Modifier.size(104.dp, 60.dp), contentScale = ContentScale.Crop)
+                                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                            Text("EPISODE ${episode.episode}", color = V2Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                            Text(episode.title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                            if (episode.overview.isNotBlank()) Text(episode.overview.take(110), color = V2Muted, fontSize = 10.sp, maxLines = 2)
+                                        }
+                                        if (selectedEpisode?.id == episode.id) Icon(Icons.Default.PlayArrow, null, tint = V2Teal, modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            Row(Modifier.padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Streams", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text(if (item.type == "movie") "Direct playable streams from your add-ons" else "Streams for the selected episode", color = V2Muted, fontSize = 11.sp)
+                }
+                if (streamLoading) CircularProgressIndicator(Modifier.size(20.dp), color = V2Teal, strokeWidth = 2.dp)
+            }
+        }
+        if (streamStatus.isNotBlank()) item { Text(streamStatus, color = V2Muted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 18.dp)) }
+        items(streams, key = { "${it.addonId}:${it.url}" }) { stream ->
+            Card(onClick = { onPlay(item.title + if (selectedEpisode != null) " · S${selectedEpisode!!.season}E${selectedEpisode!!.episode}" else "", stream.url) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp), colors = CardDefaults.cardColors(V2Panel), shape = RoundedCornerShape(17.dp)) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(stream.name, color = V2Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, modifier = Modifier.weight(1f))
+                        Icon(Icons.Default.PlayArrow, "Play", tint = V2Teal)
+                    }
+                    Text(stream.title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stream.url, color = V2Muted, fontSize = 10.sp, maxLines = 2)
+                }
+            }
+        }
+    }
+}
+
+private fun fetchV2Episodes(imdbId: String): List<V2Episode> {
+    require(imdbId.matches(Regex("^tt\\d+$"))) { "This show has no valid IMDb ID for its episode guide." }
+    val root = fetchV2Json("https://v3-cinemeta.strem.io/meta/series/${Uri.encode(imdbId)}.json")
+    val meta = root.optJSONObject("meta") ?: return emptyList()
+    val videos = meta.optJSONArray("videos") ?: JSONArray()
+    return (0 until videos.length()).mapNotNull { i ->
+        val v = videos.optJSONObject(i) ?: return@mapNotNull null
+        val season = v.optInt("season", -1)
+        val episode = v.optInt("episode", -1)
+        if (season < 0 || episode < 1) return@mapNotNull null
+        V2Episode(
+            season = season,
+            episode = episode,
+            title = v.optString("title").ifBlank { "Episode $episode" },
+            id = v.optString("id").ifBlank { "$imdbId:$season:$episode" },
+            overview = v.optString("overview"),
+            thumbnail = v.optString("thumbnail").takeIf { it.startsWith("http") }.orEmpty()
+        )
+    }.distinctBy { "${it.season}:${it.episode}" }.sortedWith(compareBy<V2Episode> { it.season }.thenBy { it.episode })
+}
+
+private fun fetchV2Catalog(type: String): List<V2Title> {
+    val native = if (type == "movie") "movie" else "series"
+    val root = fetchV2Json("https://v3-cinemeta.strem.io/catalog/$native/imdbRating.json")
+    return root.optJSONArray("metas").toV2Titles(native)
+}
+
+private fun fetchV2Search(query: String): List<V2Title> {
+    val root = fetchV2Json("https://v3.sg.media-imdb.com/suggestion/x/${URLEncoder.encode(query.trim(), "UTF-8")}.json")
+    val rows = root.optJSONArray("d") ?: return emptyList()
+    return (0 until rows.length()).mapNotNull { i ->
+        val row = rows.optJSONObject(i) ?: return@mapNotNull null
+        val id = row.optString("id").takeIf { it.startsWith("tt") } ?: return@mapNotNull null
+        val q = row.optString("q").lowercase()
+        V2Title(id, if (q in listOf("movie", "feature", "short")) "movie" else "series", row.optString("l"), row.optString("y"), row.optString("s"), row.optString("i").takeIf { it.startsWith("http") }.orEmpty())
+    }.distinctBy { it.id }.take(30)
+}
+
+private fun fetchV2Json(endpoint: String): JSONObject {
+    val c = URL(endpoint).openConnection() as HttpURLConnection
+    c.requestMethod = "GET"
+    c.connectTimeout = 12000
+    c.readTimeout = 18000
+    c.setRequestProperty("Accept", "application/json")
+    c.setRequestProperty("User-Agent", "DebridMediaCenter-Streaming/1.1")
+    try {
+        val code = c.responseCode
+        val body = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        if (code !in 200..299) throw IllegalStateException("Metadata service returned HTTP $code.")
+        return JSONObject(body)
+    } finally { c.disconnect() }
+}
+
+private fun JSONArray?.toV2Titles(type: String): List<V2Title> {
+    if (this == null) return emptyList()
+    return (0 until length()).mapNotNull { i ->
+        val row = optJSONObject(i) ?: return@mapNotNull null
+        val id = row.optString("imdb_id").takeIf { it.startsWith("tt") } ?: row.optString("id").takeIf { it.startsWith("tt") } ?: return@mapNotNull null
+        val title = row.optString("name").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        V2Title(id, type, title, row.optString("releaseInfo").ifBlank { row.optString("year") }, row.optString("description"), row.optString("poster").takeIf { it.startsWith("http") }.orEmpty())
+    }.distinctBy { it.id }.take(40)
+}
+
+@Composable
+private fun V2Loading() {
+    Row(Modifier.fillMaxWidth().padding(25.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+        CircularProgressIndicator(Modifier.size(22.dp), color = V2Teal, strokeWidth = 2.dp)
+        Spacer(Modifier.size(9.dp))
+        Text("Loading…", color = V2Muted, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun V2Player(title: String, url: String, onClose: () -> Unit) {
+    val context = LocalContext.current
+    var error by remember(url) { mutableStateOf("") }
+    val player = remember(url) {
+        androidx.media3.exoplayer.ExoPlayer.Builder(context).build().apply {
+            setMediaItem(androidx.media3.common.MediaItem.fromUri(Uri.parse(url)))
+            playWhenReady = true
+            prepare()
+        }
+    }
+    DisposableEffect(player) {
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onPlayerError(e: androidx.media3.common.PlaybackException) { error = e.message ?: e.errorCodeName }
+        }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener); player.release() }
+    }
+    Column(Modifier.fillMaxSize().background(Color.Black)) {
+        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("NOW PLAYING", color = V2Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text(title, color = Color.White, fontSize = 12.sp, maxLines = 1)
+            }
+            OutlinedButton(onClick = onClose) { Text("Close") }
+        }
+        if (error.isNotBlank()) Text("Playback failed: $error", color = Color(0xFFFF9B9B), fontSize = 12.sp, modifier = Modifier.padding(14.dp))
+        androidx.compose.ui.viewinterop.AndroidView(
+            factory = { PlayerView(it).apply { player = player; useController = true } },
+            update = { it.player = player },
+            modifier = Modifier.fillMaxWidth().weight(1f)
+        )
+    }
+}
