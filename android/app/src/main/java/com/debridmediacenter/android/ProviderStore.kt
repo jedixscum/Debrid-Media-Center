@@ -153,6 +153,49 @@ class ProviderStore(context: Context) {
     }
 
 
+    fun addTorrentFile(provider: String, fileName: String, bytes: ByteArray): String {
+        val secret = readToken(provider)?.trim().orEmpty()
+        require(secret.isNotEmpty()) { "Connect this provider in Services first." }
+        require(fileName.endsWith(".torrent", ignoreCase = true)) { "Choose a .torrent file." }
+        require(bytes.isNotEmpty()) { "The selected torrent file is empty." }
+        require(bytes.size <= 20 * 1024 * 1024) { "Torrent files must be smaller than 20 MB." }
+        val boundary = "----DMCUpload" + System.currentTimeMillis().toString(16)
+        val endpoint = when (provider) {
+            REAL_DEBRID -> "https://api.real-debrid.com/rest/1.0/torrents/addTorrent"
+            TORBOX -> "https://api.torbox.app/v1/api/torrents/createtorrent"
+            else -> error("Unknown provider.")
+        }
+        val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"; doOutput = true; connectTimeout = 20000; readTimeout = 30000
+            setRequestProperty("Authorization", "Bearer $secret")
+            setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+            setRequestProperty("Accept", "application/json")
+        }
+        try {
+            connection.outputStream.use { output ->
+                output.write("--$boundary\r\n".toByteArray(Charsets.UTF_8))
+                output.write(("Content-Disposition: form-data; name=\"file\"; filename=\"" + fileName.replace("\"", "") + "\"\r\n").toByteArray(Charsets.UTF_8))
+                output.write("Content-Type: application/x-bittorrent\r\n\r\n".toByteArray(Charsets.UTF_8))
+                output.write(bytes)
+                output.write("\r\n--$boundary--\r\n".toByteArray(Charsets.UTF_8))
+            }
+            val code = connection.responseCode
+            val body = (if (code in 200..299) connection.inputStream else connection.errorStream)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            val json = runCatching { JSONObject(body) }.getOrNull()
+            if (code !in 200..299) {
+                val detail = json?.optString("detail")?.takeIf { it.isNotBlank() } ?: json?.optString("error")?.takeIf { it.isNotBlank() }
+                throw IllegalStateException(detail ?: "Provider rejected the torrent file (HTTP $code).")
+            }
+            if (provider == TORBOX && json?.has("success") == true && !json.optBoolean("success", false)) throw IllegalStateException(json.optString("detail").ifBlank { "TorBox could not add this torrent file." })
+            val data = json?.optJSONObject("data")
+            val id = json?.optString("id")?.takeIf { it.isNotBlank() && it != "null" } ?: data?.optString("torrent_id")?.takeIf { it.isNotBlank() && it != "null" }
+            if (provider == REAL_DEBRID && id != null) {
+                val warning = runCatching { selectAllRealDebridFiles(id, secret) }.exceptionOrNull()?.message
+                return if (warning == null) "Torrent file added to Real-Debrid · ID $id · files selected" else "Torrent file added to Real-Debrid · ID $id. Select files in Real-Debrid if playback is unavailable."
+            }
+            return json?.optString("detail")?.takeIf { it.isNotBlank() } ?: ("Torrent file submitted to " + if (provider == TORBOX) "TorBox." else "Real-Debrid.")
+        } finally { connection.disconnect() }
+    }
     fun addMagnet(provider: String, magnet: String): String {
         val secret = readToken(provider)?.trim().orEmpty()
         require(secret.isNotEmpty()) { "Connect this provider in Services first." }
