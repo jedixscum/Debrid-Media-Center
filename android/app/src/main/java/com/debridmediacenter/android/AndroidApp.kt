@@ -1079,6 +1079,9 @@ private fun LibraryScreen(
     var detailData by remember { mutableStateOf<ProviderItemDetails?>(null) }
     var detailsLoading by remember { mutableStateOf(false) }
     var detailsError by remember { mutableStateOf("") }
+    var fileToDownload by remember { mutableStateOf<ProviderFileDetail?>(null) }
+    var fileDownloadBusy by remember { mutableStateOf(false) }
+    var fileDownloadError by remember { mutableStateOf("") }
 
     fun openItemDetails(item: ProviderLibraryItem) {
         detailItem = item
@@ -1127,12 +1130,24 @@ private fun LibraryScreen(
                             else Column(Modifier.height(300.dp)) {
                                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     items(detailData!!.files) { file ->
-                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                            Text(file.name, color = ThemeText, fontSize = 12.sp, lineHeight = 16.sp)
-                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                Text(formatBytes(file.sizeBytes), color = Muted, fontSize = 11.sp)
-                                                if (file.selected) Text("Selected", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        Column(
+                                            Modifier.fillMaxWidth().clickable {
+                                                fileToDownload = file
+                                                fileDownloadError = ""
+                                            }.padding(vertical = 5.dp),
+                                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                    Text(file.name, color = ThemeText, fontSize = 12.sp, lineHeight = 16.sp)
+                                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                        Text(formatBytes(file.sizeBytes), color = Muted, fontSize = 11.sp)
+                                                        if (file.selected) Text("Selected", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
+                                                Icon(Icons.Default.Download, contentDescription = "Download ${file.name}", tint = Teal, modifier = Modifier.size(18.dp))
                                             }
+                                            Text("Tap to download this file", color = Muted, fontSize = 10.sp)
                                         }
                                         HorizontalDivider(color = Panel2)
                                     }
@@ -1144,6 +1159,78 @@ private fun LibraryScreen(
             },
             confirmButton = {
                 TextButton(onClick = { detailItem = null }, enabled = !detailsLoading) { Text("Close") }
+            },
+            containerColor = Panel,
+            titleContentColor = ThemeText,
+            textContentColor = ThemeText
+        )
+    }
+
+    if (fileToDownload != null && detailItem != null) {
+        val selectedFile = fileToDownload!!
+        AlertDialog(
+            onDismissRequest = { if (!fileDownloadBusy) { fileToDownload = null; fileDownloadError = "" } },
+            title = { Text("Download this file?", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(selectedFile.name, color = ThemeText, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, lineHeight = 18.sp)
+                    Text("Size: ${formatBytes(selectedFile.sizeBytes)}", color = Muted, fontSize = 12.sp)
+                    Text("Save location: Downloads/Debrid Media Center", color = Muted, fontSize = 12.sp)
+                    Text("Only this file will be downloaded.", color = Teal, fontSize = 12.sp)
+                    if (fileDownloadBusy) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            CircularProgressIndicator(color = Teal, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Text("Preparing selected file…", color = Muted, fontSize = 12.sp)
+                        }
+                    }
+                    if (fileDownloadError.isNotBlank()) Text(fileDownloadError, color = Color(0xFFFFB4AB), fontSize = 12.sp)
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !fileDownloadBusy,
+                    onClick = {
+                        val libraryItem = detailItem!!
+                        fileDownloadBusy = true
+                        fileDownloadError = ""
+                        scope.launch {
+                            val result = withContext(Dispatchers.IO) {
+                                runCatching {
+                                    store.resolveLibraryFileDownloadUrl(libraryItem.provider, libraryItem.id, selectedFile.name)
+                                }
+                            }
+                            result.onSuccess { url ->
+                                runCatching {
+                                    val cleanName = selectedFile.name.replace('\\', '/').substringAfterLast('/')
+                                        .replace(Regex("[<>:\"|?*\\\\]"), "_")
+                                        .trim()
+                                        .take(180)
+                                        .ifBlank { "debrid-file" }
+                                    val request = DownloadManager.Request(Uri.parse(url))
+                                        .setTitle(cleanName)
+                                        .setDescription("Downloading selected file from ${if (libraryItem.provider == ProviderStore.TORBOX) "TorBox" else "Real-Debrid"}")
+                                        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                        .setAllowedOverMetered(true)
+                                        .setAllowedOverRoaming(false)
+                                        .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Debrid Media Center/$cleanName")
+                                    val manager = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as DownloadManager
+                                    manager.enqueue(request)
+                                }.onSuccess {
+                                    notice = "Download started for “${selectedFile.name.substringAfterLast('/')}”. Check notifications or Downloads for progress."
+                                    fileToDownload = null
+                                }.onFailure {
+                                    fileDownloadError = it.message ?: "Could not start this file download."
+                                }
+                            }.onFailure {
+                                fileDownloadError = it.message ?: "Could not prepare the selected file."
+                            }
+                            fileDownloadBusy = false
+                        }
+                    }
+                ) { Text(if (fileDownloadBusy) "Preparing…" else "Download") }
+            },
+            dismissButton = {
+                TextButton(enabled = !fileDownloadBusy, onClick = { fileToDownload = null; fileDownloadError = "" }) { Text("Cancel") }
             },
             containerColor = Panel,
             titleContentColor = ThemeText,
