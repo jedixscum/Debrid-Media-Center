@@ -25,6 +25,7 @@ import androidx.media3.ui.PlayerView
 import androidx.media3.ui.TrackSelectionDialogBuilder
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -39,7 +40,7 @@ private val V2Teal = Color(0xFF58E1CF)
 private val V2Muted = Color(0xFF91A5AE)
 
 private enum class V2Mode { HOME, DEBRID, STREAMING }
-private enum class V2Tab { HOME, SEARCH, MOVIES, TV, CATALOGS, ADDONS }
+private enum class V2Tab { HOME, SEARCH, MOVIES, TV, CATALOGS, LIBRARY, ADDONS }
 
 private data class V2Title(
     val id: String,
@@ -167,6 +168,7 @@ private fun V2Streaming(tab: V2Tab, onTab: (V2Tab) -> Unit, selected: V2Title?, 
                 V2Tab.MOVIES -> V2Catalog("movie", "Movies", onSelect)
                 V2Tab.TV -> V2Catalog("series", "TV Shows", onSelect)
                 V2Tab.CATALOGS -> V2AddonCatalogBrowser(onSelect)
+                V2Tab.LIBRARY -> V2LibraryScreen(onSelect)
                 V2Tab.ADDONS -> StremioAddonsScreen { onTab(V2Tab.HOME) }
             }
         }
@@ -178,6 +180,7 @@ private fun V2Streaming(tab: V2Tab, onTab: (V2Tab) -> Unit, selected: V2Title?, 
                     V2Tab.MOVIES to ("Movies" to Icons.Default.Movie),
                     V2Tab.TV to ("TV" to Icons.Default.Tv),
                     V2Tab.CATALOGS to ("Discover" to Icons.Default.Explore),
+                    V2Tab.LIBRARY to ("Library" to Icons.Default.Bookmarks),
                     V2Tab.ADDONS to ("Add-ons" to Icons.Default.Extension)
                 ).forEach { (target, p) ->
                     NavigationBarItem(selected = tab == target, onClick = { onTab(target) }, icon = { Icon(p.second, p.first) }, label = { Text(p.first, fontSize = 9.sp) })
@@ -352,6 +355,58 @@ private fun V2AddonCatalogBrowser(onSelect: (V2Title) -> Unit) {
         }
     }
 }
+
+private fun V2Title.toSavedMedia() = V2SavedMedia(
+    id = id, type = type, title = title, year = year,
+    overview = overview, posterUrl = posterUrl
+)
+
+@Composable
+private fun V2LibraryScreen(onSelect: (V2Title) -> Unit) {
+    val context = LocalContext.current
+    val library = remember { V2MediaLibrary(context.applicationContext) }
+    var refresh by remember { mutableIntStateOf(0) }
+    val saved = remember(refresh) { library.watchlist() }
+    val recent = remember(refresh) { library.recentlyViewed() }
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(13.dp), contentPadding = PaddingValues(bottom = 26.dp)) {
+        item { V2Header("Your library", "Your watchlist and recently opened titles stay on this device.") }
+        item {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Watchlist", fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text("${saved.size} saved", color = V2Muted, fontSize = 11.sp)
+            }
+        }
+        if (saved.isEmpty()) item {
+            Card(Modifier.fillMaxWidth().padding(horizontal = 18.dp), colors = CardDefaults.cardColors(V2Panel), shape = RoundedCornerShape(16.dp)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text("Your watchlist is empty", fontWeight = FontWeight.SemiBold)
+                    Text("Open a movie or show and tap Add to watchlist to keep it here.", color = V2Muted, fontSize = 12.sp)
+                }
+            }
+        }
+        items(saved, key = { "saved:${it.id}" }) { row ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { V2ResultCard(row.toV2Title(), onSelect) }
+                IconButton(onClick = { library.removeFromWatchlist(row.id); refresh++ }) {
+                    Icon(Icons.Default.BookmarkRemove, "Remove from watchlist", tint = V2Teal)
+                }
+            }
+        }
+        item {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Recently viewed", fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text("${recent.size} titles", color = V2Muted, fontSize = 11.sp)
+            }
+        }
+        if (recent.isEmpty()) item {
+            Text("Titles you open will appear here automatically.", color = V2Muted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 18.dp))
+        }
+        items(recent, key = { "recent:${it.id}" }) { row -> V2ResultCard(row.toV2Title(), onSelect) }
+    }
+}
+
+private fun V2SavedMedia.toV2Title() = V2Title(id, type, title, year, overview, posterUrl)
+
 @Composable
 private fun V2Header(title: String, subtitle: String) {
     Column(Modifier.padding(horizontal = 20.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -398,6 +453,8 @@ private fun V2ResultCard(item: V2Title, onSelect: (V2Title) -> Unit) {
 private fun V2Details(item: V2Title, onBack: () -> Unit, onPlay: (String, String) -> Unit) {
     val context = LocalContext.current
     val addonStore = remember { StremioAddonStore(context.applicationContext) }
+    val mediaLibrary = remember { V2MediaLibrary(context.applicationContext) }
+    var isSaved by remember(item.id) { mutableStateOf(mediaLibrary.isInWatchlist(item.id)) }
     var episodes by remember(item.id) { mutableStateOf(emptyList<V2Episode>()) }
     var selectedEpisode by remember(item.id) { mutableStateOf<V2Episode?>(null) }
     var season by remember(item.id) { mutableIntStateOf(1) }
@@ -475,6 +532,13 @@ private fun V2Details(item: V2Title, onBack: () -> Unit, onPlay: (String, String
                         Text("${item.year} · ${item.type.uppercase()}", color = V2Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         if (item.overview.isNotBlank()) Text(item.overview.take(240), color = V2Muted, fontSize = 11.sp, lineHeight = 16.sp)
                         Text("${addonStore.addons().size} add-on(s) installed", color = V2Muted, fontSize = 10.sp)
+                        OutlinedButton(onClick = {
+                            isSaved = mediaLibrary.toggleWatchlist(item.toSavedMedia())
+                        }) {
+                            Icon(if (isSaved) Icons.Default.BookmarkAdded else Icons.Default.BookmarkAdd, null, modifier = Modifier.size(17.dp))
+                            Spacer(Modifier.width(5.dp))
+                            Text(if (isSaved) "In watchlist" else "Add to watchlist", fontSize = 11.sp)
+                        }
                     }
                 }
             }
@@ -681,6 +745,7 @@ private fun V2Loading() {
 @Composable
 private fun V2Player(title: String, url: String, onClose: () -> Unit) {
     val context = LocalContext.current
+    val mediaLibrary = remember { V2MediaLibrary(context.applicationContext) }
     var error by remember(url) { mutableStateOf("") }
     var playbackSpeed by remember(url) { mutableFloatStateOf(1f) }
     val exoPlayer = remember(url) {
@@ -690,12 +755,28 @@ private fun V2Player(title: String, url: String, onClose: () -> Unit) {
             prepare()
         }
     }
-    DisposableEffect(exoPlayer) {
+    LaunchedEffect(exoPlayer, url) {
+        val savedPosition = mediaLibrary.position(url)
+        if (savedPosition > 10_000L) exoPlayer.seekTo(savedPosition)
+        while (true) {
+            delay(5000)
+            val duration = exoPlayer.duration
+            val position = exoPlayer.currentPosition
+            mediaLibrary.savePosition(url, if (duration > 0 && position >= duration - 30_000L) 0L else position)
+        }
+    }
+    DisposableEffect(exoPlayer, url) {
         val listener = object : androidx.media3.common.Player.Listener {
             override fun onPlayerError(e: androidx.media3.common.PlaybackException) { error = e.message ?: e.errorCodeName }
         }
         exoPlayer.addListener(listener)
-        onDispose { exoPlayer.removeListener(listener); exoPlayer.release() }
+        onDispose {
+            val duration = exoPlayer.duration
+            val position = exoPlayer.currentPosition
+            mediaLibrary.savePosition(url, if (duration > 0 && position >= duration - 30_000L) 0L else position)
+            exoPlayer.removeListener(listener)
+            exoPlayer.release()
+        }
     }
     Column(Modifier.fillMaxSize().background(Color.Black).windowInsetsPadding(WindowInsets.statusBars)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
