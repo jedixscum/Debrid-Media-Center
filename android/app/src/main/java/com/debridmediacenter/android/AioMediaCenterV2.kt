@@ -298,7 +298,8 @@ private fun V2AddonCatalogBrowser(onSelect: (V2Title) -> Unit) {
     var rows by remember { mutableStateOf(emptyList<StremioCatalogTitle>()) }
     var loading by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
-    LaunchedEffect(Unit) {
+    var refreshKey by remember { mutableIntStateOf(0) }
+    LaunchedEffect(refreshKey) {
         catalogs = withContext(Dispatchers.IO) { runCatching { client.catalogs() }.getOrDefault(emptyList()) }
     }
     LaunchedEffect(selected, query) {
@@ -313,7 +314,7 @@ private fun V2AddonCatalogBrowser(onSelect: (V2Title) -> Unit) {
         item { V2Header("Discover", "Browse collections published by your installed add-ons.") }
         if (selected == null) {
             item {
-                OutlinedButton(onClick = { loading = true; androidx.compose.runtime.LaunchedEffect(Unit) { } }, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp)) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(5.dp)); Text("Refresh catalogs") }
+                OutlinedButton(onClick = { refreshKey++ }, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp)) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(5.dp)); Text("Refresh catalogs") }
             }
             if (catalogs.isEmpty()) item {
                 Card(Modifier.fillMaxWidth().padding(horizontal = 18.dp), colors = CardDefaults.cardColors(V2Panel), shape = RoundedCornerShape(18.dp)) {

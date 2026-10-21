@@ -62,6 +62,8 @@ fun StremioAddonsScreen(onClose: () -> Unit) {
     var manifestUrl by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var testingId by remember { mutableStateOf("") }
+    var testResults by remember { mutableStateOf(emptyMap<String, String>()) }
 
     Box(Modifier.fillMaxSize().background(AddonBg)) {
         LazyColumn(
@@ -203,13 +205,29 @@ fun StremioAddonsScreen(onClose: () -> Unit) {
                                 Text(addon.description, color = AddonMuted, fontSize = 11.sp, maxLines = 3)
                             }
                             Text(addon.manifestUrl, color = AddonMuted, fontSize = 10.sp, maxLines = 2)
-                            OutlinedButton(
-                                onClick = {
-                                    store.remove(addon.id)
-                                    addons = store.addons()
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) { Text("Remove add-on") }
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                addon.resources.distinct().forEach { capability ->
+                                    Box(Modifier.background(AddonTeal.copy(alpha = 0.10f), RoundedCornerShape(20.dp)).padding(horizontal = 9.dp, vertical = 5.dp)) {
+                                        Text(capability.replaceFirstChar { it.uppercase() }, color = AddonTeal, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+                            }
+                            if (testResults[addon.id].orEmpty().isNotBlank()) Text(testResults[addon.id].orEmpty(), color = if (testResults[addon.id].orEmpty().contains("reachable")) AddonTeal else Color(0xFFFFB4AB), fontSize = 11.sp, lineHeight = 15.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                OutlinedButton(onClick = {
+                                    testingId = addon.id
+                                    scope.launch {
+                                        val result = withContext(Dispatchers.IO) { runCatching { StremioCatalogClient(context.applicationContext).test(addon.id) } }
+                                        testingId = ""
+                                        testResults = testResults + (addon.id to result.fold({ it }, { it.message ?: "Connection test failed." }))
+                                    }
+                                }, enabled = testingId.isBlank(), modifier = Modifier.weight(1f)) {
+                                    if (testingId == addon.id) CircularProgressIndicator(Modifier.size(15.dp), strokeWidth = 2.dp)
+                                    else Icon(Icons.Default.Refresh, null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.size(5.dp)); Text(if (testingId == addon.id) "Testing…" else "Test connection")
+                                }
+                                OutlinedButton(onClick = { store.remove(addon.id); addons = store.addons(); testResults = testResults - addon.id }, modifier = Modifier.weight(1f)) { Text("Remove add-on") }
+                            }
                         }
                     }
                 }
