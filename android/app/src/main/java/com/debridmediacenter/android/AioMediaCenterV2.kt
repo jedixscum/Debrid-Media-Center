@@ -40,7 +40,7 @@ private val V2Teal = Color(0xFF58E1CF)
 private val V2Muted = Color(0xFF91A5AE)
 
 private enum class V2Mode { HOME, DEBRID, STREAMING }
-private enum class V2Tab { HOME, SEARCH, MOVIES, TV, CATALOGS, LIBRARY, ADDONS }
+private enum class V2Tab { HOME, SEARCH, MOVIES, TV, LIBRARY, ADDONS }
 
 internal data class V2Title(
     val id: String,
@@ -170,7 +170,6 @@ private fun V2Streaming(tab: V2Tab, onTab: (V2Tab) -> Unit, selected: V2Title?, 
                 V2Tab.SEARCH -> V2Search(onSelect)
                 V2Tab.MOVIES -> V2Catalog("movie", "Movies", onSelect)
                 V2Tab.TV -> V2Catalog("series", "TV Shows", onSelect)
-                V2Tab.CATALOGS -> V2AddonCatalogBrowser(onSelect)
                 V2Tab.LIBRARY -> V2LibraryScreen(onSelect)
                 V2Tab.ADDONS -> StremioAddonsScreen { onTab(V2Tab.HOME) }
             }
@@ -182,7 +181,6 @@ private fun V2Streaming(tab: V2Tab, onTab: (V2Tab) -> Unit, selected: V2Title?, 
                     V2Tab.SEARCH to ("Search" to Icons.Default.Search),
                     V2Tab.MOVIES to ("Movies" to Icons.Default.Movie),
                     V2Tab.TV to ("TV" to Icons.Default.Tv),
-                    V2Tab.CATALOGS to ("Discover" to Icons.Default.Explore),
                     V2Tab.LIBRARY to ("Library" to Icons.Default.Bookmarks),
                     V2Tab.ADDONS to ("Add-ons" to Icons.Default.Extension)
                 ).forEach { (target, p) ->
@@ -215,15 +213,6 @@ private fun V2Home(onSelect: (V2Title) -> Unit, onTab: (V2Tab) -> Unit) {
         }
         item { V2TitleRow("Popular movies", movies, loading, onSelect) }
         item { V2TitleRow("Popular TV shows", shows, loading, onSelect) }
-        item {
-            Card(onClick = { onTab(V2Tab.CATALOGS) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp), colors = CardDefaults.cardColors(V2Panel2), shape = RoundedCornerShape(18.dp)) {
-                Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Icon(Icons.Default.Explore, null, tint = V2Teal)
-                    Column(Modifier.weight(1f)) { Text("Discover add-on catalogs", fontWeight = FontWeight.SemiBold); Text("Browse collections from installed add-ons.", color = V2Muted, fontSize = 11.sp) }
-                    Icon(Icons.Default.ChevronRight, null, tint = V2Teal)
-                }
-            }
-        }
         item {
             Card(onClick = { onTab(V2Tab.ADDONS) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp), colors = CardDefaults.cardColors(V2Panel), shape = RoundedCornerShape(18.dp)) {
                 Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
