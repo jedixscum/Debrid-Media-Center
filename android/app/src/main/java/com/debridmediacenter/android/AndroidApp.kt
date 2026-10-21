@@ -1656,7 +1656,15 @@ private fun MediaDetailsScreen(
             }
         }
         if (releases.isNotEmpty()) {
-            items(releases, key = { "details-release-${item.id}-${it.hash}" }) { release ->
+            val episodeFilteredReleases = selectedEpisode?.let { episode ->
+                val exactEpisode = Regex("(?i)\\bS" + episode.season.toString().padStart(2, '0') + "E" + episode.episode.toString().padStart(2, '0') + "\\b")
+                val seasonPack = Regex("(?i)\\b(S" + episode.season.toString().padStart(2, '0') + "(?:\\\\s*(?:COMPLETE|PACK))?|SEASON\\\\s*" + episode.season + ")\\b")
+                releases.filter { exactEpisode.containsMatchIn(it.title) || seasonPack.containsMatchIn(it.title) }
+            } ?: releases
+            if (selectedEpisode != null) {
+                item { Text("RELEASES FOR S" + selectedEpisode!!.season.toString().padStart(2, '0') + "E" + selectedEpisode!!.episode.toString().padStart(2, '0'), color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 18.dp)) }
+            }
+            items(episodeFilteredReleases, key = { "details-release-${item.id}-${it.hash}" }) { release ->
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (ProviderStore.REAL_DEBRID in connectedProviders) {
                         ReleaseCard(release, ProviderStore.REAL_DEBRID, store, scope) { releaseStatus = it }
@@ -1702,24 +1710,11 @@ private fun MediaDetailsScreen(
                                 Card(
                                     modifier = Modifier.fillMaxWidth().clickable {
                                         selectedEpisode = episode
-                                        showStreamPicker = true
-                                        streamBusy = true
-                                        streamError = ""
-                                        episodeStreams = emptyList()
-                                        selectedResolution = "All"
-                                        scope.launch {
-                                            val episodeId = item.id + ":" + episode.season + ":" + episode.episode
-                                            val result = withContext(Dispatchers.IO) {
-                                                runCatching { stremioStore.streams("series", episodeId) }
-                                            }
-                                            streamBusy = false
-                                            result.onSuccess { streams ->
-                                                episodeStreams = streams
-                                                if (streams.isEmpty()) streamError = if (stremioStore.addons().isEmpty()) {
-                                                    "No add-ons are installed yet. Add Stremio add-ons from the Streaming Add-ons page."
-                                                } else "No direct-play streams were returned for this episode. Try another add-on or episode."
-                                            }.onFailure { streamError = it.message ?: "Could not load streams from add-ons." }
-                                        }
+                                        selectedSeason = episode.season
+                                        showStreamPicker = false
+                                        releaseStatus = "Selected S" + episode.season.toString().padStart(2, '0') +
+                                            "E" + episode.episode.toString().padStart(2, '0') +
+                                            ". Matching debrid releases are shown above when available."
                                     },
                                     colors = CardDefaults.cardColors(containerColor = if (selectedEpisode?.id == episode.id) Panel2 else Panel),
                                     shape = RoundedCornerShape(14.dp)
