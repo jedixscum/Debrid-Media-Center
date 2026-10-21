@@ -1,7 +1,10 @@
 name: Apply calendar page
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-calendar-page.yml"
 
 permissions:
   contents: write
@@ -20,15 +23,11 @@ jobs:
           s = p.read_text()
           if '// UPCOMING_CALENDAR_V1' in s:
               raise SystemExit('Calendar patch already applied')
-
           s = s.replace('package com.debridmediacenter.android\n\n// NEW_RELEASES_HOMEPAGE_V1', 'package com.debridmediacenter.android\n\n// NEW_RELEASES_HOMEPAGE_V1\n// UPCOMING_CALENDAR_V1')
           s = s.replace('import androidx.compose.material.icons.filled.Cloud\n', 'import androidx.compose.material.icons.filled.Cloud\nimport androidx.compose.material.icons.filled.DateRange\n')
-
           s = s.replace('''                                2 -> LibraryScreen(store, scope)\n                                else -> SettingsScreen(store, scope, collectionStore, themeName.value, { chosen -> themeName.value=chosen; settings.edit().putString("theme",chosen).apply(); applyDmcTheme(chosen) }) { destination -> navigateTo(destination) }''', '''                                2 -> LibraryScreen(store, scope)\n                                3 -> CalendarScreen(onOpenDetails = { item -> pendingSelection = item; detailsItem = null; navigateTo(1) })\n                                else -> SettingsScreen(store, scope, collectionStore, themeName.value, { chosen -> themeName.value=chosen; settings.edit().putString("theme",chosen).apply(); applyDmcTheme(chosen) }) { destination -> navigateTo(destination) }''')
-
           s = s.replace('''                                2 to ("Library" to Icons.Default.Folder),\n                                3 to ("Settings" to Icons.Default.Settings)''', '''                                2 to ("Library" to Icons.Default.Folder),\n                                3 to ("Calendar" to Icons.Default.DateRange),\n                                4 to ("Settings" to Icons.Default.Settings)''')
           s = s.replace('onNavigate(3)', 'onNavigate(4)')
-
           marker = '@Composable\nprivate fun DiscoverScreen('
           calendar_ui = r'''@Composable
 private fun CalendarScreen(onOpenDetails: (MediaSearchResult) -> Unit) {
@@ -36,25 +35,16 @@ private fun CalendarScreen(onOpenDetails: (MediaSearchResult) -> Unit) {
     var entries by remember { mutableStateOf<List<CalendarRelease>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf("") }
-
     LaunchedEffect(mode) {
         loading = true
         error = ""
-        entries = withContext(Dispatchers.IO) {
-            runCatching { fetchUpcomingCalendar(mode == "Movies") }.getOrElse {
-                error = it.message ?: "Could not load release calendar."
-                emptyList()
-            }
-        }
+        val result = withContext(Dispatchers.IO) { runCatching { fetchUpcomingCalendar(mode == "Movies") } }
+        result.onSuccess { entries = it }.onFailure { entries = emptyList(); error = it.message ?: "Could not load release calendar." }
         loading = false
     }
-
     Column(Modifier.fillMaxSize()) {
         Header("Calendar", "Upcoming releases for the next 3 months")
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 18.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             FilterChip(selected = mode == "Shows", onClick = { mode = "Shows" }, label = { Text("Shows") })
             FilterChip(selected = mode == "Movies", onClick = { mode = "Movies" }, label = { Text("Movies") })
         }
@@ -63,14 +53,8 @@ private fun CalendarScreen(onOpenDetails: (MediaSearchResult) -> Unit) {
             loading -> BoxLoading()
             error.isNotBlank() -> Text(error, color = Color(0xFFFFB4AB), fontSize = 12.sp, modifier = Modifier.padding(18.dp))
             entries.isEmpty() -> Text("No upcoming ${mode.lowercase()} were found in the next 3 months.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(18.dp))
-            else -> LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(bottom = 28.dp)
-            ) {
-                items(entries, key = { "calendar:${it.item.type}:${it.item.id}:${it.releaseDate}" }) { release ->
-                    CalendarReleaseCard(release, onOpenDetails)
-                }
+            else -> LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 28.dp)) {
+                items(entries, key = { "calendar:${it.item.type}:${it.item.id}:${it.releaseDate}" }) { release -> CalendarReleaseCard(release, onOpenDetails) }
             }
         }
     }
@@ -78,32 +62,13 @@ private fun CalendarScreen(onOpenDetails: (MediaSearchResult) -> Unit) {
 
 @Composable
 private fun CalendarReleaseCard(release: CalendarRelease, onOpenDetails: (MediaSearchResult) -> Unit) {
-    Card(
-        onClick = { onOpenDetails(release.item) },
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
-        colors = CardDefaults.cardColors(containerColor = Panel),
-        shape = RoundedCornerShape(18.dp)
-    ) {
-        Row(
-            Modifier.padding(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            AsyncImage(
-                model = release.item.posterUrl.takeIf { it.isNotBlank() },
-                contentDescription = release.item.title,
-                modifier = Modifier.size(72.dp, 106.dp).background(Panel2, RoundedCornerShape(12.dp)),
-                contentScale = ContentScale.Crop
-            )
+    Card(onClick = { onOpenDetails(release.item) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+        Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            AsyncImage(model = release.item.posterUrl.takeIf { it.isNotBlank() }, contentDescription = release.item.title, modifier = Modifier.size(72.dp, 106.dp).background(Panel2, RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(release.dayLabel, color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                 Text(release.item.title, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 2)
-                Text(
-                    "${release.item.type.uppercase()} · ${release.item.year.ifBlank { "Upcoming" }}",
-                    color = Muted,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
+                Text("${release.item.type.uppercase()} · ${release.item.year.ifBlank { "Upcoming" }}", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                 Text("Tap to find releases", color = Teal, fontSize = 10.sp)
             }
         }
@@ -111,19 +76,11 @@ private fun CalendarReleaseCard(release: CalendarRelease, onOpenDetails: (MediaS
 }
 
 '''
-          if marker not in s:
-              raise SystemExit('DiscoverScreen marker not found')
+          if marker not in s: raise SystemExit('DiscoverScreen marker not found')
           s = s.replace(marker, calendar_ui + marker, 1)
-
           old = '''private fun fetchNewReleaseMovies(): List<MediaSearchResult> {\n    val years = listOf(java.time.Year.now().value, java.time.Year.now().value - 1)\n    for (year in years) {\n        val rows = runCatching { fetchCatalogTitles("movie", "year", "genre", year.toString()) }.getOrDefault(emptyList())\n        if (rows.isNotEmpty()) return rows\n    }\n    return emptyList()\n}\n'''
-          new = r'''private data class CalendarRelease(
-    val item: MediaSearchResult,
-    val releaseDate: java.time.Instant
-) {
-    val dayLabel: String
-        get() = java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d", java.util.Locale.US)
-            .withZone(java.time.ZoneId.systemDefault())
-            .format(releaseDate)
+          new = r'''private data class CalendarRelease(val item: MediaSearchResult, val releaseDate: java.time.Instant) {
+    val dayLabel: String get() = java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d", java.util.Locale.US).withZone(java.time.ZoneId.systemDefault()).format(releaseDate)
 }
 
 private fun fetchUpcomingCalendar(movies: Boolean): List<CalendarRelease> {
@@ -131,16 +88,11 @@ private fun fetchUpcomingCalendar(movies: Boolean): List<CalendarRelease> {
     val now = java.time.Instant.now()
     val end = now.plus(92, java.time.temporal.ChronoUnit.DAYS)
     val years = listOf(java.time.Year.now().value, java.time.Year.now().value + 1)
-    val candidates = years.flatMap { year ->
-        runCatching { fetchCatalogTitles(type, "year", "genre", year.toString()) }.getOrDefault(emptyList())
-    }.distinctBy { it.id }.take(36)
-
+    val candidates = years.flatMap { year -> runCatching { fetchCatalogTitles(type, "year", "genre", year.toString()) }.getOrDefault(emptyList()) }.distinctBy { it.id }.take(36)
     val output = mutableListOf<CalendarRelease>()
     for (item in candidates) {
         val date = runCatching { fetchUpcomingDateForItem(item) }.getOrNull() ?: continue
-        if (!date.isBefore(now) && !date.isAfter(end)) {
-            output += CalendarRelease(item, date)
-        }
+        if (!date.isBefore(now) && !date.isAfter(end)) output += CalendarRelease(item, date)
     }
     return output.sortedBy { it.releaseDate }.distinctBy { "${it.item.id}:${it.releaseDate}" }.take(60)
 }
@@ -157,11 +109,8 @@ private fun fetchUpcomingDateForItem(item: MediaSearchResult): java.time.Instant
     try {
         val code = connection.responseCode
         if (code !in 200..299) return null
-        val body = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-        val meta = JSONObject(body).optJSONObject("meta") ?: return null
-        if (item.type == "movie") {
-            return parseReleaseInstant(meta.optString("released"))
-        }
+        val meta = JSONObject(connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }).optJSONObject("meta") ?: return null
+        if (item.type == "movie") return parseReleaseInstant(meta.optString("released"))
         val videos = meta.optJSONArray("videos") ?: return parseReleaseInstant(meta.optString("released"))
         var earliest: java.time.Instant? = null
         for (i in 0 until videos.length()) {
@@ -169,15 +118,12 @@ private fun fetchUpcomingDateForItem(item: MediaSearchResult): java.time.Instant
             if (earliest == null || released.isBefore(earliest)) earliest = released
         }
         return earliest ?: parseReleaseInstant(meta.optString("released"))
-    } finally {
-        connection.disconnect()
-    }
+    } finally { connection.disconnect() }
 }
 
 private fun parseReleaseInstant(raw: String): java.time.Instant? {
     if (raw.isBlank()) return null
-    return runCatching { java.time.Instant.parse(raw) }.getOrNull()
-        ?: runCatching { java.time.OffsetDateTime.parse(raw).toInstant() }.getOrNull()
+    return runCatching { java.time.Instant.parse(raw) }.getOrNull() ?: runCatching { java.time.OffsetDateTime.parse(raw).toInstant() }.getOrNull()
 }
 
 private fun fetchNewReleaseMovies(): List<MediaSearchResult> {
@@ -189,12 +135,10 @@ private fun fetchNewReleaseMovies(): List<MediaSearchResult> {
     return emptyList()
 }
 '''
-          if old not in s:
-              raise SystemExit('fetchNewReleaseMovies block not found')
+          if old not in s: raise SystemExit('fetchNewReleaseMovies block not found')
           s = s.replace(old, new, 1)
           p.write_text(s)
           PY
-
       - name: Commit changes and remove updater
         run: |
           git config user.name "github-actions[bot]"
