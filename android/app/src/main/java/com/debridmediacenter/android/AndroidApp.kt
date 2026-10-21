@@ -1,6 +1,9 @@
 package com.debridmediacenter.android
 
 import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -575,6 +578,8 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, initialS
     var episodeFilter by remember { mutableStateOf("All episodes") }
     var status by remember { mutableStateOf("") }
     var magnet by remember { mutableStateOf("") }
+    var torrentUri by remember { mutableStateOf<Uri?>(null) }
+    var torrentFileName by remember { mutableStateOf("") }
     var sourceLink by remember { mutableStateOf("") }
     var directUrl by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -588,6 +593,16 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, initialS
     var catalogBusy by remember { mutableStateOf(true) }
     var catalogError by remember { mutableStateOf("") }
     val genres = listOf("All", "Action", "Adventure", "Animation", "Comedy", "Crime", "Documentary", "Drama", "Family", "Fantasy", "Horror", "Mystery", "Romance", "Sci-Fi", "Thriller")
+    val torrentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            torrentUri = uri
+            val cursor = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            torrentFileName = cursor?.use { if (it.moveToFirst()) it.getString(0).orEmpty() else "" }
+                .orEmpty().ifBlank { uri.lastPathSegment?.substringAfterLast('/') ?: "selected.torrent" }
+            status = if (torrentFileName.endsWith(".torrent", true)) "Selected $torrentFileName" else "Choose a file ending in .torrent."
+        }
+    }
+
 
     LaunchedEffect(contentType, selectedGenre) {
         catalogBusy = true
@@ -657,7 +672,8 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, initialS
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 ToolIcon("Search releases", Icons.Default.Search, activeTool == "search", Modifier.weight(1f)) { activeTool = "search" }
-                ToolIcon("Add magnet / link", Icons.Default.Link, activeTool == "magnet", Modifier.weight(1f)) { activeTool = "magnet" }
+                ToolIcon("Add magnet", Icons.Default.Link, activeTool == "magnet", Modifier.weight(1f)) { activeTool = "magnet" }
+                ToolIcon("Add torrent file", Icons.Default.Folder, activeTool == "torrent", Modifier.weight(1f)) { activeTool = "torrent" }
             }
         }
         if (activeTool == "search") {
@@ -766,6 +782,52 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, initialS
                         OutlinedTextField(sourceLink, { sourceLink = it }, label = { Text("HTTP(S) link") }, placeholder = { Text("Direct .torrent URL or supported provider link") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                         Text("Direct torrent-file URLs and general download links require provider-specific handling; this field is reserved until that submission path is implemented.", color = Muted, fontSize = 10.sp)
                         if (status.isNotBlank()) Text(status, color = Muted, fontSize = 11.sp)
+                        if (status.isNotBlank()) Text(status, color = Muted, fontSize = 11.sp)
+                    }
+                }
+            }
+        } else if (activeTool == "torrent") {
+            item {
+                Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel), shape = RoundedCornerShape(18.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("ADD TORRENT FILE", color = Teal, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("Choose a .torrent file from your device and submit it directly to your debrid provider.", color = Muted, fontSize = 12.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(provider == ProviderStore.REAL_DEBRID, { provider = ProviderStore.REAL_DEBRID }, label = { Text("Real-Debrid") })
+                            FilterChip(provider == ProviderStore.TORBOX, { provider = ProviderStore.TORBOX }, label = { Text("TorBox") })
+                        }
+                        OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Text(if (torrentFileName.isBlank()) "No torrent file selected" else torrentFileName, color = ThemeText, fontWeight = FontWeight.SemiBold)
+                                Text("Torrent files only · up to 20 MB", color = Muted, fontSize = 11.sp)
+                            }
+                        }
+                        OutlinedButton(onClick = { torrentPicker.launch(arrayOf("application/x-bittorrent", "application/octet-stream", "*/*")) }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                            Text("Choose .torrent file")
+                        }
+                        Button(
+                            enabled = !busy && torrentUri != null && torrentFileName.endsWith(".torrent", true),
+                            onClick = {
+                                val uri = torrentUri ?: return@Button
+                                busy = true
+                                status = "Uploading torrent file…"
+                                scope.launch {
+                                    val result = withContext(Dispatchers.IO) {
+                                        runCatching {
+                                            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                                                ?: throw IllegalStateException("Could not read the selected torrent file.")
+                                            store.addTorrentFile(provider, torrentFileName, bytes)
+                                        }
+                                    }
+                                    busy = false
+                                    result.onSuccess { status = it; torrentUri = null; torrentFileName = "" }
+                                        .onFailure { status = it.message ?: "Could not add torrent file." }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Bg)
+                        ) { Text(if (busy) "Uploading…" else "Add torrent to provider", fontWeight = FontWeight.Bold) }
                         if (status.isNotBlank()) Text(status, color = Muted, fontSize = 11.sp)
                     }
                 }
