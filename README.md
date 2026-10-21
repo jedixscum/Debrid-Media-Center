@@ -17,6 +17,8 @@ Debrid Media Center is a standalone project with a native Qt Quick Linux desktop
 
 ### Native Android
 - Home, Discover, Library, Services, and Settings tabs.
+- Android homepage now includes a **New releases** movie row using the current-year Cinemeta catalog, with a previous-year fallback when needed.
+- Tapping a new-release title opens the existing release workflow so you can immediately search for releases and add them to Real-Debrid or TorBox.
 - Movie and TV title search with poster cards.
 - Optional DMM release search and one-tap add to Real-Debrid or TorBox.
 - Manual magnet submission, TorBox cached availability checks, provider library refresh, and in-app Media3 playback for supported files.
