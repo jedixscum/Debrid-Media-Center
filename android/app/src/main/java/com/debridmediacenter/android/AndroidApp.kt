@@ -1,6 +1,8 @@
 package com.debridmediacenter.android
 
 import android.net.Uri
+import android.app.DownloadManager
+import android.os.Environment
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -25,6 +27,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Link
@@ -199,11 +202,7 @@ fun DebridMediaCenterApp() {
                                         playerUrl = url
                                     }
                                 )
-                                2 -> LibraryScreen(store, scope, onPlay = { url, item ->
-                                    playerItem = item
-                                    resumePositionMs = 0L
-                                    playerUrl = url
-                                })
+                                2 -> LibraryScreen(store, scope)
                                 else -> SettingsScreen(store, scope, collectionStore, themeName.value, { chosen -> themeName.value=chosen; settings.edit().putString("theme",chosen).apply(); applyDmcTheme(chosen) }) { destination -> navigateTo(destination) }
                             }
                         }
@@ -1066,15 +1065,15 @@ private fun searchTitles(query: String): List<MediaSearchResult> {
 @Composable
 private fun LibraryScreen(
     store: ProviderStore,
-    scope: CoroutineScope,
-    onPlay: (String, MediaSearchResult) -> Unit
+    scope: CoroutineScope
 ) {
+    val context = LocalContext.current
     var items by remember { mutableStateOf<List<ProviderLibraryItem>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var loaded by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     var notice by remember { mutableStateOf("") }
-    var playingId by remember { mutableStateOf<String?>(null) }
+    var downloadingId by remember { mutableStateOf<String?>(null) }
     var selectedProvider by remember { mutableStateOf("all") }
 
     fun loadLibrary() {
@@ -1211,7 +1210,7 @@ private fun LibraryScreen(
             item { Text(if (selectedProvider == ProviderStore.TORBOX) "No TorBox items were returned." else "No Real-Debrid items were returned.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) }
         }
         items(visibleItems, key = { "${it.provider}:${it.id}:${it.title}" }) { item ->
-            var playBusy by remember(item.id) { mutableStateOf(false) }
+            var downloadBusy by remember(item.id) { mutableStateOf(false) }
             Card(
                 Modifier.fillMaxWidth().padding(horizontal = 18.dp),
                 colors = CardDefaults.cardColors(containerColor = Panel),
@@ -1246,29 +1245,55 @@ private fun LibraryScreen(
                         item.progress >= 100
                     if (ready && item.id.isNotBlank()) {
                         Button(
-                            enabled = !playBusy,
+                            enabled = !downloadBusy && downloadingId == null,
                             onClick = {
-                                playBusy = true
-                                playingId = item.id
+                                downloadBusy = true
+                                downloadingId = item.id
+                                error = ""
+                                notice = ""
                                 scope.launch {
                                     val result = withContext(Dispatchers.IO) {
                                         runCatching { store.resolvePlaybackUrl(item.provider, item.id) }
                                     }
-                                    playBusy = false
-                                    playingId = null
-                                    result.onSuccess { onPlay(it, MediaSearchResult("library:${item.provider}:${item.id}", "library", item.title, "", "")) }
-                                        .onFailure { error = it.message ?: "Could not prepare playback for this item." }
+                                    result.onSuccess { url ->
+                                        runCatching {
+                                            val safeTitle = item.title
+                                                .replace("/", "_")
+                                                .replace("\\", "_")
+                                                .replace(":", "_")
+                                                .trim()
+                                                .take(120)
+                                                .ifBlank { "debrid-video" }
+                                            val request = DownloadManager.Request(Uri.parse(url))
+                                                .setTitle(safeTitle)
+                                                .setDescription("Downloading from ${if (item.provider == ProviderStore.TORBOX) "TorBox" else "Real-Debrid"}")
+                                                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                                .setAllowedOverMetered(true)
+                                                .setAllowedOverRoaming(false)
+                                                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Debrid Media Center/$safeTitle")
+                                            val manager = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as DownloadManager
+                                            manager.enqueue(request)
+                                        }.onSuccess {
+                                            notice = "Download started for “${item.title}”. Check your notifications or Downloads folder for progress."
+                                        }.onFailure {
+                                            error = it.message ?: "Could not start the download."
+                                        }
+                                    }.onFailure {
+                                        error = it.message ?: "Could not prepare this download."
+                                    }
+                                    downloadBusy = false
+                                    downloadingId = null
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Bg)
                         ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null)
+                            Icon(Icons.Default.Download, contentDescription = null)
                             Spacer(Modifier.size(6.dp))
-                            Text(if (playBusy || playingId == item.id) "Preparing playback…" else "Play in app")
+                            Text(if (downloadBusy || downloadingId == item.id) "Preparing download…" else "Download")
                         }
                     } else {
-                        Text("Playback will be available when this item is ready.", color = Muted, fontSize = 11.sp)
+                        Text("Download will be available when this item is ready.", color = Muted, fontSize = 11.sp)
                     }
                 }
             }
