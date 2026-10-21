@@ -935,24 +935,32 @@ private fun SelectedTitleCard(item: MediaSearchResult, onBack: () -> Unit) {
 @Composable
 private fun ReleaseCard(release: ReleaseSearchResult, provider: String, store: ProviderStore, scope: CoroutineScope, onStatus: (String) -> Unit) {
     var busy by remember { mutableStateOf(false) }
+    var addState by remember { mutableStateOf("") }
     Card(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), colors = CardDefaults.cardColors(Panel), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Text(release.title, fontSize = 13.sp, fontWeight = FontWeight.Bold)
             Text("${release.sizeMb.toInt()} MB · ${release.hash.take(10)}…", color = Muted, fontSize = 10.sp)
+            if (addState.isNotBlank()) Text(addState, color = if (addState.startsWith("Failed")) Color(0xFFFF6B6B) else Teal, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             Button(
-                enabled = !busy,
+                enabled = !busy && addState.isBlank(),
                 onClick = {
                     busy = true
                     val magnet = "magnet:?xt=urn:btih:${release.hash}&dn=${URLEncoder.encode(release.title, "UTF-8")}"
                     scope.launch {
                         val result = withContext(Dispatchers.IO) { runCatching { store.addMagnet(provider, magnet) } }
                         busy = false
-                        result.onSuccess { onStatus(it) }.onFailure { onStatus(it.message ?: "Could not add release.") }
+                        result.onSuccess {
+                            addState = if (it.contains("queued", true) || it.contains("processing", true)) "Queued · processing on provider" else "Added · provider accepted release"
+                            onStatus(it)
+                        }.onFailure {
+                            addState = "Failed · ${it.message ?: "Could not add release."}"
+                            onStatus(it.message ?: "Could not add release.")
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Bg)
-            ) { Text(if (busy) "Adding…" else "Add to ${if (provider == ProviderStore.REAL_DEBRID) "Real-Debrid" else "TorBox"}") }
+            ) { Text(if (busy) "Adding…" else if (addState.startsWith("Queued")) "Queued" else if (addState.startsWith("Added")) "Added ✓" else if (addState.startsWith("Failed")) "Retry add" else "Add to ${if (provider == ProviderStore.REAL_DEBRID) "Real-Debrid" else "TorBox"}") }
         }
     }
 }
