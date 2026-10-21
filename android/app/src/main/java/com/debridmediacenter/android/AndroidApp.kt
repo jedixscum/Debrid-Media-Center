@@ -733,7 +733,6 @@ private fun DiscoverScreen(store: ProviderStore, scope: CoroutineScope, initialS
                                 result.onSuccess { status = it; magnet = "" }.onFailure { status = it.message ?: "Could not add magnet." }
                             }
                         }, enabled = !busy && magnet.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Adding magnet…" else "Add magnet to provider") }
-                        Divider(color = Panel2)
                         Text("TORRENT / DOWNLOAD LINK", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         OutlinedTextField(sourceLink, { sourceLink = it }, label = { Text("HTTP(S) link") }, placeholder = { Text("Direct .torrent URL or supported provider link") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                         Text("Direct torrent-file URLs and general download links require provider-specific handling; this field is reserved until that submission path is implemented.", color = Muted, fontSize = 10.sp)
