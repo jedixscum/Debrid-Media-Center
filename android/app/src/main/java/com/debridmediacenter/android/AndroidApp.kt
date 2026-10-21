@@ -154,7 +154,7 @@ fun DebridMediaCenterApp() {
                                     store = store,
                                     collectionStore = collectionStore,
                                     onNavigate = { navigateTo(it) },
-                                    onOpenDetails = { detailsItem = it },
+                                    onOpenDetails = { item -> pendingSelection = item; detailsItem = null; navigateTo(1) },
                                     onResume = { entry ->
                                         val savedUrl = collectionStore.playbackUrl(entry)
                                         if (savedUrl != null) {
