@@ -265,18 +265,19 @@ private fun V2Search(onSelect: (V2Title) -> Unit) {
         item {
             LaunchedEffect(busy) {
                 if (busy) {
-                    val result = withContext(Dispatchers.IO) {
+                    val searchResult = withContext(Dispatchers.IO) {
                         val core = runCatching { fetchV2Search(query) }.getOrDefault(emptyList())
                         val catalogs = runCatching { catalogClient.catalogs() }.getOrDefault(emptyList())
-                        val addonRows = catalogs.filter { it.supportsSearch }.take(10).flatMap { catalog ->
+                        val searchable = catalogs.filter { it.supportsSearch }.take(10)
+                        val addonRows = searchable.flatMap { catalog ->
                             runCatching { catalogClient.items(catalog, query) }.getOrDefault(emptyList()).map { row ->
                                 V2Title(row.id, if (row.type.lowercase() in listOf("series", "tv")) "series" else "movie", row.title, row.year, row.overview, row.poster)
                             }
                         }
-                        (addonRows + core).distinctBy { it.id }.take(60)
+                        Pair((addonRows + core).distinctBy { it.id }.take(60), searchable.isNotEmpty())
                     }
-                    results = result
-                    message = if (runCatching { catalogClient.catalogs().none { it.supportsSearch } }.getOrDefault(true)) "No searchable add-on catalogs detected; results use metadata search." else ""
+                    results = searchResult.first
+                    message = if (!searchResult.second) "No searchable add-on catalogs detected; results use metadata search." else ""
                     busy = false
                 }
             }
