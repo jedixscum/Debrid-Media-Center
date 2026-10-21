@@ -303,7 +303,7 @@ private fun V2Details(item: V2Title, onBack: () -> Unit, onPlay: (String, String
     var streams by remember(item.id) { mutableStateOf(emptyList<StremioStream>()) }
     var streamLoading by remember(item.id) { mutableStateOf(false) }
     var streamStatus by remember(item.id) { mutableStateOf("") }
-    var showStreamPicker by remember(item.id) { mutableStateOf(false) }
+    var showStreamPicker by remember(item.id) { mutableStateOf(item.type == "movie") }
     var selectedResolution by remember(item.id) { mutableStateOf("All") }
 
     LaunchedEffect(item.id, item.type) {
